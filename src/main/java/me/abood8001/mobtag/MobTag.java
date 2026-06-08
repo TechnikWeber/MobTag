@@ -17,6 +17,8 @@ public class MobTag extends JavaPlugin {
     private boolean papiEnabled = false;
     private boolean mythicMobsEnabled = false;
     private boolean packetEventsEnabled = false;
+    private me.abood8001.mobtag.gui.MobTagGUI gui;
+    private me.abood8001.mobtag.util.UpdateChecker updateChecker;
 
     @Override
     public void onEnable() {
@@ -30,6 +32,9 @@ public class MobTag extends JavaPlugin {
         this.tagManager = new MobTagManager(this);
         getServer().getPluginManager().registerEvents(new MobTagListener(this), this);
 
+        this.gui = new me.abood8001.mobtag.gui.MobTagGUI(this);
+        getServer().getPluginManager().registerEvents(gui, this);
+
         MobTagCommand cmd = new MobTagCommand(this);
         getCommand("mobtag").setExecutor(cmd);
         getCommand("mobtag").setTabCompleter(cmd);
@@ -37,7 +42,15 @@ public class MobTag extends JavaPlugin {
         tagManager.startTask();
 
         // bStats
-        new Metrics(this, 25516);
+        Metrics metrics = new Metrics(this, 25516);
+        metrics.addCustomChart(new org.bstats.charts.SimplePie("display_mode", () -> mobTagConfig.getDisplayMode()));
+        metrics.addCustomChart(new org.bstats.charts.SimplePie("visibility_mode", () -> mobTagConfig.getVisibilityMode()));
+        metrics.addCustomChart(new org.bstats.charts.SimplePie("packetevents_installed", () -> packetEventsEnabled ? "Yes" : "No"));
+
+        if (mobTagConfig.isUpdateChecker()) {
+            updateChecker = new me.abood8001.mobtag.util.UpdateChecker(this, 135699);
+            updateChecker.check();
+        }
 
         getLogger().info("MobTag v" + getDescription().getVersion() + " enabled! by Abood_8001");
     }
@@ -95,4 +108,6 @@ public class MobTag extends JavaPlugin {
     public boolean isPapiEnabled() { return papiEnabled; }
     public boolean isMythicMobsEnabled() { return mythicMobsEnabled; }
     public boolean isPacketEventsEnabled() { return packetEventsEnabled; }
+    public me.abood8001.mobtag.gui.MobTagGUI getGUI() { return gui; }
+    public me.abood8001.mobtag.util.UpdateChecker getUpdateChecker() { return updateChecker; }
 }

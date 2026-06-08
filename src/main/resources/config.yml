@@ -12,6 +12,15 @@ blacklisted-worlds:
   - example_world1
   - example_world2
 
+# -----------------------------------------------
+# BEDROCK DETECTION (for Geyser/Floodgate servers)
+# -----------------------------------------------
+bedrock:
+  # Use Floodgate API to detect Bedrock players (recommended if installed)
+  use-floodgate: true
+  # Fallback: detect Bedrock players by username prefix
+  prefix: "."
+
 # How often (in ticks) the tags are updated.
 # 1 second = 20 ticks. Lower = smoother but more CPU. Recommended: 4
 update-interval: 4
@@ -23,7 +32,10 @@ display-range: 16.0
 looking-len: 5.0
 
 # Height offset of the tag above the mob's head (in blocks).
-tag-height-offset: 0.3
+# Bedrock players (via Geyser) often need a different offset.
+tag-height-offset:
+  java: 0.3
+  bedrock: 0.0
 
 # Display mode for health tags
 # Options:
@@ -42,11 +54,27 @@ visibility-mode: ALL
 # Ignore peaceful mobs (cows, pigs, sheep, etc)?
 ignore-passive: false
 
-# Ignore player entities?
+# Ignore player entities? (set false AND enable player-tags below to show player health)
 ignore-players: true
 
 # Should tags be shown on boss mobs (Ender Dragon, Wither)?
 show-on-bosses: true
+
+# -----------------------------------------------
+# PLAYER TAGS
+# -----------------------------------------------
+# Show health tags above players too?
+# (ignore-players above must be false for this to work)
+player-tags:
+  enabled: false
+  # Separate format for player tags
+  format: "&c❤ &f{current}&7/&f{max}"
+  # Separate height offset for player tags
+  height-offset:
+    java: 0.3
+    bedrock: 0.0
+  # Separate display range for player tags (blocks)
+  display-range: 16.0
 
 # -----------------------------------------------
 # TAG FORMAT
@@ -63,7 +91,7 @@ show-on-bosses: true
 # Hex colors: Use &#RRGGBB format (e.g. &#ff0000 = red)
 # -----------------------------------------------
 
-tag-format: "&c❤ &f{current}&7/&f{max} &7| {bar}"
+tag-format: "&c❤ &f{current}&7/&f{max}"
 
 # -----------------------------------------------
 # HEALTH BAR
@@ -102,7 +130,7 @@ health-bar:
 
 mythicmobs:
   # Enable MythicMobs support?
-  enabled: true
+  enabled: false
 
   # Show the MythicMob's internal name instead of entity type?
   show-mythic-name: true
@@ -133,6 +161,47 @@ entity-formats:
   WITHER: "&8❤ &f{current}&7/&f{max} &7| {bar} &8[Wither]"
 
 # -----------------------------------------------
+# TAG SCALE
+# -----------------------------------------------
+# Size multiplier for packet-based tags (PACKET mode only).
+# 1.0 = default, 0.5 = half size, 2.0 = double size.
+tag-scale: 1.0
+
+# -----------------------------------------------
+# DAMAGE ANIMATION
+# -----------------------------------------------
+# Animate the tag when the mob takes damage (PACKET mode only).
+damage-animation:
+  enabled: false
+  flash: false
+  scale-bounce: false
+  duration: 8
+
+# -----------------------------------------------
+# DAMAGE INDICATOR
+# -----------------------------------------------
+# Show floating damage numbers when a mob takes damage (PACKET mode only).
+damage-indicator:
+  enabled: true
+  format: "&c-{damage}"
+  crit-format: "&d-{damage} ✸"
+  show-on-players: true
+  duration: 20
+  height-offset: -0.5
+  # Motion direction: UP, DOWN, FORWARD, RANDOM, NONE
+  # FORWARD = moves toward the player who hit the mob
+  motion: UP
+  # How far it travels over its lifetime (in blocks)
+  motion-distance: 1.0
+  # Fade out near the end of its lifetime?
+  fade-out: true
+
+# -----------------------------------------------
+# UPDATE CHECKER
+# -----------------------------------------------
+update-checker: true
+
+# -----------------------------------------------
 # MESSAGES
 # -----------------------------------------------
 
@@ -140,4 +209,4 @@ messages:
   prefix: "&8[&bMobTag&8] "
   reload-success: "&aConfiguration reloaded successfully!"
   no-permission: "&cYou don't have permission to do that."
-  unknown-command: "&cUnknown sub-command. Usage: /mobtag reload"
+  unknown-command: "&cUnknown sub-command. Usage: /mobtag admin reload"

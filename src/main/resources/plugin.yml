@@ -10,6 +10,7 @@ softdepend:
   - MythicMobs
   - SimplePets
   - packetevents
+  - floodgate
 
 commands:
   mobtag:

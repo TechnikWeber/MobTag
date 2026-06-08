@@ -67,11 +67,17 @@ public class MobTagManager {
                     String mode = cfg.getVisibilityMode();
 
                     if ("ALL".equals(mode)) {
+                        double entRange = (entity instanceof Player) ? cfg.getPlayerTagRange() : cfg.getDisplayRange();
+                        double entRangeSquared = entRange * entRange;
                         boolean anyInRange = false;
                         for (Player p : entity.getWorld().getPlayers()) {
                             if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                            if (p.getLocation().distanceSquared(entity.getLocation()) > rangeSquared) continue;
-                            if (plugin.getToggleManager().isHidden(p.getUniqueId())) continue;
+                            if (p.getLocation().distanceSquared(entity.getLocation()) > entRangeSquared) continue;
+                            if (entity instanceof Player) {
+                                if (plugin.getToggleManager().isPlayerTagsHidden(p.getUniqueId())) continue;
+                            } else {
+                                if (plugin.getToggleManager().isHidden(p.getUniqueId())) continue;
+                            }
                             showTag(entity, p);
                             anyInRange = true;
                         }
@@ -90,7 +96,7 @@ public class MobTagManager {
                         if (display instanceof PacketDisplay pd) {
                             for (Player p : entity.getWorld().getPlayers()) {
                                 if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                                if (plugin.getToggleManager().isHidden(p.getUniqueId())) continue;
+                                if (isToggledOff(p, entity)) { pd.removeFor(p); continue; }
                                 if (p.getLocation().distanceSquared(entity.getLocation()) > rangeSquared) {
                                     pd.removeFor(p);
                                     continue;
@@ -105,7 +111,7 @@ public class MobTagManager {
                             boolean anyLooking = false;
                             for (Player p : entity.getWorld().getPlayers()) {
                                 if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                                if (plugin.getToggleManager().isHidden(p.getUniqueId())) continue;
+                                if (isToggledOff(p, entity)) continue;
                                 if (p.getLocation().distanceSquared(entity.getLocation()) > rangeSquared) continue;
                                 if (isLookingAt(p, entity, cfg)) {
                                     anyLooking = true;
@@ -120,7 +126,7 @@ public class MobTagManager {
                         }
                     } else {
                         Player viewer = getViewer(entity, rangeSquared, mode);
-                        if (viewer != null && !plugin.getToggleManager().isHidden(viewer.getUniqueId())) {
+                        if (viewer != null && !isToggledOff(viewer, entity)) {
                             showTag(entity, viewer);
                         } else {
                             removeTag(entity.getUniqueId());
@@ -168,11 +174,21 @@ public class MobTagManager {
         }
     }
 
+    private boolean isToggledOff(Player viewer, LivingEntity entity) {
+        if (entity instanceof Player) {
+            return plugin.getToggleManager().isPlayerTagsHidden(viewer.getUniqueId());
+        }
+        return plugin.getToggleManager().isHidden(viewer.getUniqueId());
+    }
+
     private boolean shouldTag(LivingEntity entity) {
         MobTagConfig cfg = plugin.getMobTagConfig();
 
-        // Skip players
-        if (entity instanceof Player && cfg.isIgnorePlayers()) return false;
+        // Skip players (unless player-tags is enabled)
+        if (entity instanceof Player) {
+            if (cfg.isIgnorePlayers() && !cfg.isPlayerTagsEnabled()) return false;
+            if (!cfg.isPlayerTagsEnabled()) return false;
+        }
 
         // Skip ArmorStands (our own tags)
         if (entity instanceof ArmorStand) return false;
@@ -237,14 +253,17 @@ public class MobTagManager {
         // ARMORSTAND mode always uses ArmorStand
 
         if (usePackets) {
-            return new PacketDisplay(loc, text, mob.getEntityId(), (float) cfg.getTagHeightOffset());
+            float hJava = (mob instanceof Player) ? (float) cfg.getPlayerTagHeightJava() : (float) cfg.getTagHeightJava();
+            float hBedrock = (mob instanceof Player) ? (float) cfg.getPlayerTagHeightBedrock() : (float) cfg.getTagHeightBedrock();
+            return new PacketDisplay(loc, text, mob.getEntityId(), hJava, hBedrock, cfg.getTagScale(), mob instanceof Player, plugin);
         } else {
             return new ArmorStandDisplay(loc, text, plugin);
         }
     }
 
     private Location getTagLocation(LivingEntity entity, MobTagConfig cfg) {
-        double height = entity.getHeight() + cfg.getTagHeightOffset();
+        double offset = (entity instanceof Player) ? cfg.getPlayerTagHeightJava() : cfg.getTagHeightJava();
+        double height = entity.getHeight() + offset;
         return entity.getLocation().clone().add(0, height, 0);
     }
 
@@ -260,7 +279,12 @@ public class MobTagManager {
         String bar = buildBar(entity.getHealth(), max, cfg);
 
         String entityType = entity.getType().name();
-        String format = cfg.getEntityFormats().getOrDefault(entityType, cfg.getTagFormat());
+        String format;
+        if (entity instanceof Player) {
+            format = cfg.getPlayerTagFormat();
+        } else {
+            format = cfg.getEntityFormats().getOrDefault(entityType, cfg.getTagFormat());
+        }
 
         // MythicMobs custom format
         if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity)) {
