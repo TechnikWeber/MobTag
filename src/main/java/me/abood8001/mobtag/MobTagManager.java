@@ -1,402 +1,424 @@
 package me.abood8001.mobtag;
 
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Location;
-import org.bukkit.entity.*;
-import me.abood8001.mobtag.display.TagDisplay;
 import me.abood8001.mobtag.display.ArmorStandDisplay;
 import me.abood8001.mobtag.display.PacketDisplay;
+import me.abood8001.mobtag.display.TagDisplay;
+import me.abood8001.mobtag.scheduler.SchedulerAdapter;
+import me.abood8001.mobtag.util.EntityUtil;
+import me.abood8001.mobtag.util.TextUtil;
+import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.RayTraceResult;
 
-
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.logging.Level;
 
 public class MobTagManager {
 
     private final MobTag plugin;
 
-    // Maps mob UUID -> ArmorStand tag entity
-    private final Map<UUID, TagDisplay> tags = new ConcurrentHashMap<>();
+    /** Mob UUID -> its display. */
+    private final Map<UUID, TagDisplay> tags = new HashMap<>();
+    /** Mob UUID -> UUID of the player who last damaged it (DAMAGER mode). */
+    private final Map<UUID, UUID> lastDamager = new HashMap<>();
+    /** Mob UUID -> millis of the last damage taken (DAMAGER timeout and out-of-combat hiding). */
+    private final Map<UUID, Long> lastDamageTime = new HashMap<>();
 
-    // Maps mob UUID -> UUID of last damager
-    private final Map<UUID, UUID> lastDamager = new ConcurrentHashMap<>();
+    private BukkitTask task;
 
+    /** Per-tick memo of shouldTag(), so a mob seen by ten players is only filtered once. */
+    private final Map<UUID, Boolean> filterCache = new HashMap<>();
+    private int loopCounter = 0;
 
-    // Passive mob types
-    private static final Set<EntityType> PASSIVE_TYPES = EnumSet.of(
-            EntityType.COW, EntityType.PIG, EntityType.SHEEP, EntityType.CHICKEN,
-            EntityType.RABBIT, EntityType.HORSE, EntityType.DONKEY, EntityType.MULE,
-            EntityType.LLAMA, EntityType.CAT, EntityType.WOLF, EntityType.PARROT,
-            EntityType.TURTLE, EntityType.FOX, EntityType.BEE, EntityType.AXOLOTL,
-            EntityType.FROG, EntityType.TADPOLE, EntityType.SNIFFER, EntityType.ALLAY,
-            EntityType.STRIDER, EntityType.MOOSHROOM, EntityType.GOAT
-    );
-
-    // Boss types
-    private static final Set<EntityType> BOSS_TYPES = EnumSet.of(
-            EntityType.ENDER_DRAGON, EntityType.WITHER
-    );
+    // Debug counters, surfaced by /mobtag debug.
+    private long lastLoopNanos = 0L;
+    private int lastScanned = 0;
 
     public MobTagManager(MobTag plugin) {
         this.plugin = plugin;
     }
 
     public void startTask() {
-        MobTagConfig cfg = plugin.getMobTagConfig();
-        me.abood8001.mobtag.scheduler.SchedulerAdapter.runTaskTimer(plugin, this::updateTags,
-                cfg.getUpdateInterval(), cfg.getUpdateInterval());
+        SchedulerAdapter.cancel(task);
+        int interval = plugin.getMobTagConfig().getUpdateInterval();
+        task = SchedulerAdapter.runTaskTimer(plugin, this::updateTags, interval, interval);
     }
 
     public void reload() {
-        me.abood8001.mobtag.scheduler.SchedulerAdapter.cancelAllTasks(plugin);
         startTask();
     }
 
+    public void stopTask() {
+        SchedulerAdapter.cancel(task);
+        task = null;
+    }
+
+    // ── Main loop ────────────────────────────────────────────────────────────
+
+    /**
+     * Driven from the players outward rather than over every living entity on the server: each
+     * player runs one chunk-bounded nearby-entity query, so cost scales with players times local
+     * mob density instead of players times world population.
+     */
     private void updateTags() {
+        long start = System.nanoTime();
         MobTagConfig cfg = plugin.getMobTagConfig();
-        double range = cfg.getDisplayRange();
-        double rangeSquared = range * range;
+        String mode = cfg.getVisibilityMode();
+        boolean lookingMode = "LOOKING_AT".equals(mode);
+        boolean damagerMode = "DAMAGER".equals(mode);
 
-        // Collect all living mobs across all worlds
-        for (org.bukkit.World world : Bukkit.getWorlds()) {
-            for (LivingEntity entity : world.getLivingEntities()) {
+        // One ray trace per player per tick, not one per (player, mob) pair - the result is the
+        // same whichever mob you were about to test it against.
+        Map<UUID, Entity> lookTargets = lookingMode ? computeLookTargets(cfg) : Map.of();
+
+        Map<UUID, List<Player>> wanted = new HashMap<>();
+        Map<UUID, LivingEntity> byId = new HashMap<>();
+        // Entities that qualify for a tag but may not currently be visible to anyone, e.g. in
+        // LOOKING_AT mode between glances. Keeping their display alive avoids spawning and
+        // despawning an armor stand every time a player looks away.
+        Set<UUID> keepAlive = new HashSet<>();
+        filterCache.clear();
+        int scanned = 0;
+
+        double range = cfg.getMaxRange();
+        double mobRangeSq = cfg.getDisplayRange() * cfg.getDisplayRange();
+        double playerRangeSq = cfg.getPlayerTagRange() * cfg.getPlayerTagRange();
+        long now = System.currentTimeMillis();
+
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            if (viewer.getGameMode() == GameMode.SPECTATOR) continue;
+            if (cfg.getBlacklistedWorlds().contains(viewer.getWorld().getName())) continue;
+
+            Location viewerLoc = viewer.getLocation();
+            for (Entity entity : viewer.getWorld().getNearbyEntities(viewerLoc, range, range, range,
+                    e -> e instanceof LivingEntity)) {
+                scanned++;
+                LivingEntity target = (LivingEntity) entity;
+                if (target.equals(viewer)) continue; // nobody needs a tag on their own head
+
                 try {
-                    if (!shouldTag(entity)) continue;
-                    String mode = cfg.getVisibilityMode();
-
-                    if ("ALL".equals(mode)) {
-                        double entRange = (entity instanceof Player) ? cfg.getPlayerTagRange() : cfg.getDisplayRange();
-                        double entRangeSquared = entRange * entRange;
-                        boolean anyInRange = false;
-                        for (Player p : entity.getWorld().getPlayers()) {
-                            if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                            if (p.getLocation().distanceSquared(entity.getLocation()) > entRangeSquared) continue;
-                            if (entity instanceof Player) {
-                                if (plugin.getToggleManager().isPlayerTagsHidden(p.getUniqueId())) continue;
-                            } else {
-                                if (plugin.getToggleManager().isHidden(p.getUniqueId())) continue;
-                            }
-                            showTag(entity, p);
-                            anyInRange = true;
-                        }
-                        if (!anyInRange) {
-                            removeTag(entity.getUniqueId());
-                        }
-                    } else if ("LOOKING_AT".equals(mode)) {
-                        TagDisplay display = tags.get(entity.getUniqueId());
-                        if (display == null || display.isDead()) {
-                            Location tagLoc = getTagLocation(entity, cfg);
-                            String text = buildTagText(entity, null, cfg);
-                            display = createDisplay(tagLoc, text, cfg, entity);
-                            tags.put(entity.getUniqueId(), display);
-                        }
-
-                        if (display instanceof PacketDisplay pd) {
-                            for (Player p : entity.getWorld().getPlayers()) {
-                                if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                                if (isToggledOff(p, entity)) { pd.removeFor(p); continue; }
-                                if (p.getLocation().distanceSquared(entity.getLocation()) > rangeSquared) {
-                                    pd.removeFor(p);
-                                    continue;
-                                }
-                                if (isLookingAt(p, entity, cfg)) {
-                                    showTag(entity, p);
-                                } else {
-                                    pd.removeFor(p);
-                                }
-                            }
-                        } else if (display instanceof ArmorStandDisplay asd) {
-                            boolean anyLooking = false;
-                            for (Player p : entity.getWorld().getPlayers()) {
-                                if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                                if (isToggledOff(p, entity)) continue;
-                                if (p.getLocation().distanceSquared(entity.getLocation()) > rangeSquared) continue;
-                                if (isLookingAt(p, entity, cfg)) {
-                                    anyLooking = true;
-                                    break;
-                                }
-                            }
-                            if (anyLooking) {
-                                asd.showFor();
-                            } else {
-                                asd.hideFor();
-                            }
-                        }
-                    } else {
-                        Player viewer = getViewer(entity, rangeSquared, mode);
-                        if (viewer != null && !isToggledOff(viewer, entity)) {
-                            showTag(entity, viewer);
-                        } else {
-                            removeTag(entity.getUniqueId());
-                        }
+                    Boolean allowed = filterCache.get(target.getUniqueId());
+                    if (allowed == null) {
+                        allowed = shouldTag(target, cfg, now);
+                        filterCache.put(target.getUniqueId(), allowed);
                     }
-                } catch (Exception ignored) {}
+                    if (!allowed) continue;
+
+                    double limitSq = (target instanceof Player) ? playerRangeSq : mobRangeSq;
+                    if (viewerLoc.distanceSquared(target.getLocation()) > limitSq) continue;
+                    if (isToggledOff(viewer, target)) continue;
+
+                    keepAlive.add(target.getUniqueId());
+                    byId.putIfAbsent(target.getUniqueId(), target);
+
+                    if (lookingMode && !target.equals(lookTargets.get(viewer.getUniqueId()))) continue;
+                    if (damagerMode && !isCurrentDamager(target, viewer, cfg, now)) continue;
+
+                    wanted.computeIfAbsent(target.getUniqueId(), k -> new ArrayList<>(2)).add(viewer);
+                } catch (Exception ex) {
+                    debug("Failed while evaluating " + target.getType() + " for " + viewer.getName(), ex);
+                }
             }
         }
 
-        // Clean up tags for mobs that are gone
-        tags.entrySet().removeIf(entry -> {
-            UUID uid = entry.getKey();
-            TagDisplay display = entry.getValue();
-            if (Bukkit.getEntity(uid) == null) {
-                display.remove();
-                lastDamager.remove(uid);
-                return true;
+        for (Map.Entry<UUID, List<Player>> entry : wanted.entrySet()) {
+            LivingEntity target = byId.get(entry.getKey());
+            if (target == null) continue;
+            try {
+                showTag(target, entry.getValue(), cfg);
+            } catch (Exception ex) {
+                debug("Failed to render a tag for " + target.getType(), ex);
             }
-            return false;
+        }
+
+        pruneTags(wanted, keepAlive);
+        // The history map only needs trimming occasionally, not on every single pass.
+        if (++loopCounter % 100 == 0) {
+            pruneDamageHistory(cfg, now);
+        }
+
+        lastScanned = scanned;
+        lastLoopNanos = System.nanoTime() - start;
+    }
+
+    /** Drops displays nobody needs any more, and hides the rest from viewers who moved on. */
+    private void pruneTags(Map<UUID, List<Player>> wanted, Set<UUID> keepAlive) {
+        Iterator<Map.Entry<UUID, TagDisplay>> it = tags.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, TagDisplay> entry = it.next();
+            TagDisplay display = entry.getValue();
+
+            if (display.isDead() || !keepAlive.contains(entry.getKey())) {
+                display.remove();
+                it.remove();
+                continue;
+            }
+
+            List<Player> viewers = wanted.get(entry.getKey());
+            Set<UUID> keep;
+            if (viewers == null || viewers.isEmpty()) {
+                keep = Set.of();
+            } else {
+                keep = new HashSet<>(viewers.size());
+                for (Player p : viewers) keep.add(p.getUniqueId());
+            }
+
+            for (UUID current : new ArrayList<>(display.getViewers())) {
+                if (!keep.contains(current)) display.hideFrom(current);
+            }
+        }
+    }
+
+    /**
+     * Keeps the damage history bounded. Without this, every mob a player ever hit stayed in
+     * memory for the lifetime of the server.
+     */
+    private void pruneDamageHistory(MobTagConfig cfg, long now) {
+        long ttlSeconds = Math.max(cfg.getDamagerTimeoutSeconds(), cfg.getHideAfterSecondsOutOfCombat());
+        long ttl = Math.max(60L, ttlSeconds) * 1000L;
+        lastDamageTime.entrySet().removeIf(entry -> {
+            if (now - entry.getValue() <= ttl) return false;
+            lastDamager.remove(entry.getKey());
+            return true;
         });
     }
 
-    private Player getViewer(LivingEntity entity, double rangeSquared, String mode) {
-        if ("DAMAGER".equals(mode)) {
-            UUID damagerUUID = lastDamager.get(entity.getUniqueId());
-            if (damagerUUID == null) return null;
-            Player damager = Bukkit.getPlayer(damagerUUID);
-            if (damager == null || !damager.isOnline()) return null;
-            if (damager.getWorld() != entity.getWorld()) return null;
-            double dist = damager.getLocation().distanceSquared(entity.getLocation());
-            return dist <= rangeSquared ? damager : null;
-        } else {
-            // ALL mode: find nearest player in range
-            Player nearest = null;
-            double closestDist = rangeSquared;
-            for (Player p : entity.getWorld().getPlayers()) {
-                if (p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
-                double dist = p.getLocation().distanceSquared(entity.getLocation());
-                if (dist <= closestDist) {
-                    closestDist = dist;
-                    nearest = p;
-                }
+    private Map<UUID, Entity> computeLookTargets(MobTagConfig cfg) {
+        Map<UUID, Entity> targets = new HashMap<>();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getGameMode() == GameMode.SPECTATOR) continue;
+            try {
+                RayTraceResult result = player.getWorld().rayTraceEntities(
+                        player.getEyeLocation(),
+                        player.getEyeLocation().getDirection(),
+                        cfg.getLookingLen(),
+                        e -> !e.equals(player)
+                );
+                if (result == null || result.getHitEntity() == null) continue;
+                Entity hit = result.getHitEntity();
+                // Without this you can "look at" a mob straight through a wall.
+                if (cfg.isLookingRequiresLineOfSight() && !player.hasLineOfSight(hit)) continue;
+                targets.put(player.getUniqueId(), hit);
+            } catch (Exception ex) {
+                debug("Ray trace failed for " + player.getName(), ex);
             }
-            return nearest;
         }
+        return targets;
     }
 
-    private boolean isToggledOff(Player viewer, LivingEntity entity) {
-        if (entity instanceof Player) {
+    private boolean isCurrentDamager(LivingEntity target, Player viewer, MobTagConfig cfg, long now) {
+        UUID damager = lastDamager.get(target.getUniqueId());
+        if (damager == null || !damager.equals(viewer.getUniqueId())) return false;
+        int timeout = cfg.getDamagerTimeoutSeconds();
+        if (timeout <= 0) return true;
+        Long when = lastDamageTime.get(target.getUniqueId());
+        return when != null && now - when <= timeout * 1000L;
+    }
+
+    private boolean isToggledOff(Player viewer, LivingEntity target) {
+        if (target instanceof Player) {
             return plugin.getToggleManager().isPlayerTagsHidden(viewer.getUniqueId());
         }
         return plugin.getToggleManager().isHidden(viewer.getUniqueId());
     }
 
-    private boolean shouldTag(LivingEntity entity) {
-        MobTagConfig cfg = plugin.getMobTagConfig();
+    // ── Filtering ────────────────────────────────────────────────────────────
 
-        // Skip players (unless player-tags is enabled)
+    private boolean shouldTag(LivingEntity entity, MobTagConfig cfg, long now) {
         if (entity instanceof Player) {
-            if (cfg.isIgnorePlayers() && !cfg.isPlayerTagsEnabled()) return false;
-            if (!cfg.isPlayerTagsEnabled()) return false;
+            // ignore-players is now actually honoured, matching what the config always claimed.
+            if (!cfg.isPlayerTagsEnabled() || cfg.isIgnorePlayers()) return false;
+            if (((Player) entity).getGameMode() == GameMode.SPECTATOR) return false;
         }
 
-        // Skip ArmorStands (our own tags)
         if (entity instanceof ArmorStand) return false;
-        if (entity instanceof TextDisplay) return false;
 
-        if (plugin.getMobTagConfig().getBlacklistedWorlds().contains(entity.getWorld().getName())) return false;
+        for (String key : cfg.getIgnoreMetadata()) {
+            if (entity.hasMetadata(key)) return false;
+        }
+        if (cfg.isHideOnVanished() && EntityUtil.isVanished(entity)) return false;
+        if (cfg.isHideOnInvisible() && entity.isInvisible()) return false;
 
+        boolean boss = EntityUtil.isBoss(entity)
+                || cfg.getExtraBossTypes().contains(entity.getType().name());
+        if (boss && !cfg.isShowOnBosses()) return false;
 
-        if (entity.hasMetadata("NPC")) return false;
-        if (entity.hasMetadata("shopkeeper")) return false;
-        if (entity.getClass().getName().toLowerCase().contains("simplepets")) return false;
+        if (cfg.isIgnorePassive() && EntityUtil.isPassive(entity)) return false;
 
+        double max = EntityUtil.getMaxHealth(entity);
+        if (max <= 0) return false; // placeholder entities would otherwise render NaN
 
-        // Skip bosses if disabled
-        if (BOSS_TYPES.contains(entity.getType()) && !cfg.isShowOnBosses()) return false;
+        if (cfg.isHideAtFullHealth() && entity.getHealth() >= max) return false;
 
-        // Skip passive mobs if configured
-        if (cfg.isIgnorePassive() && PASSIVE_TYPES.contains(entity.getType())) return false;
+        int outOfCombat = cfg.getHideAfterSecondsOutOfCombat();
+        if (outOfCombat > 0) {
+            Long when = lastDamageTime.get(entity.getUniqueId());
+            if (when == null || now - when > outOfCombat * 1000L) return false;
+        }
 
         return true;
     }
 
-    public void showTag(LivingEntity entity, Player viewer) {
-        MobTagConfig cfg = plugin.getMobTagConfig();
-        String text = buildTagText(entity, viewer, cfg);
+    // ── Rendering ────────────────────────────────────────────────────────────
+
+    private void showTag(LivingEntity entity, List<Player> viewers, MobTagConfig cfg) {
         UUID uid = entity.getUniqueId();
         Location tagLoc = getTagLocation(entity, cfg);
 
         TagDisplay display = tags.get(uid);
-
         if (display == null || display.isDead()) {
-            display = createDisplay(tagLoc, text, cfg, entity);
+            if (display != null) display.remove();
+            display = createDisplay(tagLoc, entity, cfg);
             tags.put(uid, display);
         }
 
-        // Remove old viewers who are no longer in range (for PacketDisplay)
-        if (display instanceof PacketDisplay pd) {
-            double rangeSquared = cfg.getDisplayRange() * cfg.getDisplayRange();
-            for (UUID oldViewerId : new java.util.HashSet<>(pd.getViewers())) {
-                Player oldViewer = Bukkit.getPlayer(oldViewerId);
-                if (oldViewer == null || !oldViewer.isOnline()
-                        || oldViewer.getWorld() != entity.getWorld()
-                        || oldViewer.getLocation().distanceSquared(entity.getLocation()) > rangeSquared) {
-                    pd.removeFor(oldViewer != null ? oldViewer : null);
-                }
-            }
-        }
+        // Only rebuild the text per viewer when placeholders can actually differ between them.
+        boolean perViewer = plugin.isPapiEnabled() && formatFor(entity, cfg).indexOf('%') >= 0;
+        String shared = perViewer ? null : buildTagText(entity, null, cfg);
 
-        display.update(tagLoc, text, viewer);
+        for (Player viewer : viewers) {
+            display.update(tagLoc, perViewer ? buildTagText(entity, viewer, cfg) : shared, viewer);
+        }
     }
 
-    private TagDisplay createDisplay(Location loc, String text, MobTagConfig cfg, LivingEntity mob) {
+    private TagDisplay createDisplay(Location loc, LivingEntity mob, MobTagConfig cfg) {
         String mode = cfg.getDisplayMode();
-        boolean usePackets = false;
-
-
-        if ("PACKET".equals(mode)) {
-            usePackets = plugin.isPacketEventsEnabled();
-        } else if ("AUTO".equals(mode)) {
-            usePackets = plugin.isPacketEventsEnabled();
-        }
-        // ARMORSTAND mode always uses ArmorStand
+        boolean usePackets = !"ARMORSTAND".equals(mode) && plugin.isPacketEventsEnabled();
 
         if (usePackets) {
-            float hJava = (mob instanceof Player) ? (float) cfg.getPlayerTagHeightJava() : (float) cfg.getTagHeightJava();
-            float hBedrock = (mob instanceof Player) ? (float) cfg.getPlayerTagHeightBedrock() : (float) cfg.getTagHeightBedrock();
-            return new PacketDisplay(loc, text, mob.getEntityId(), hJava, hBedrock, cfg.getTagScale(), mob instanceof Player, plugin);
-        } else {
-            return new ArmorStandDisplay(loc, text, plugin);
+            double[] heights = cfg.getHeightOffsets(mob);
+            return new PacketDisplay(loc, mob, (float) heights[0], (float) heights[1],
+                    cfg.getTagScale(), plugin);
         }
+        return new ArmorStandDisplay(loc, buildTagText(mob, null, cfg), plugin, mob);
     }
 
     private Location getTagLocation(LivingEntity entity, MobTagConfig cfg) {
-        double offset = (entity instanceof Player) ? cfg.getPlayerTagHeightJava() : cfg.getTagHeightJava();
-        double height = entity.getHeight() + offset;
-        return entity.getLocation().clone().add(0, height, 0);
+        double offset = cfg.getHeightOffset(entity, false);
+        return entity.getLocation().clone().add(0, entity.getHeight() + offset, 0);
     }
 
+    /** The raw, uninterpolated format string that applies to this entity. */
+    private String formatFor(LivingEntity entity, MobTagConfig cfg) {
+        if (entity instanceof Player) return cfg.getPlayerTagFormat();
+
+        if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity)) {
+            String mythic = cfg.getMythicCustomFormat();
+            if (mythic != null && !mythic.isEmpty()) return mythic;
+        }
+        return cfg.getEntityFormats().getOrDefault(entity.getType().name(), cfg.getTagFormat());
+    }
 
     private String buildTagText(LivingEntity entity, Player viewer, MobTagConfig cfg) {
-        double current = entity.getHealth();
-        double max = entity.getMaxHealth();
-        current = Math.round(current * 10.0) / 10.0;
-        max = Math.round(max * 10.0) / 10.0;
-        double percent = (entity.getHealth() / max) * 100.0;
+        double max = EntityUtil.getMaxHealth(entity);
+        double health = entity.getHealth();
+        double ratio = max > 0 ? Math.min(1.0, health / max) : 0.0;
 
-        String mobName = getMobName(entity, cfg);
-        String bar = buildBar(entity.getHealth(), max, cfg);
+        String format = formatFor(entity, cfg);
 
-        String entityType = entity.getType().name();
-        String format;
-        if (entity instanceof Player) {
-            format = cfg.getPlayerTagFormat();
-        } else {
-            format = cfg.getEntityFormats().getOrDefault(entityType, cfg.getTagFormat());
+        if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity)
+                && format.contains("{mythic_name}")) {
+            format = format.replace("{mythic_name}", plugin.getMythicMobsHook().getMythicMobName(entity));
         }
 
-        // MythicMobs custom format
-        if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity)) {
-            String mythicFmt = cfg.getMythicCustomFormat();
-            if (mythicFmt != null && !mythicFmt.isEmpty()) {
-                format = mythicFmt;
-                String mythicName = plugin.getMythicMobsHook().getMythicMobName(entity);
-                format = format.replace("{mythic_name}", mythicName);
-            }
-        }
-
-        // In PACKET mode, prepend mob name since passenger hides the mob's nametag
-        if (plugin.isPacketEventsEnabled() && !"ARMORSTAND".equals(cfg.getDisplayMode())) {
-            if (entity.getCustomName() != null && !entity.getCustomName().isEmpty()) {
-                format = format + "\n" + entity.getCustomName();
+        // A packet tag rides the mob and covers its nametag, so re-attach the custom name -
+        // unless the format already prints it via {name}.
+        if (plugin.isPacketEventsEnabled() && !"ARMORSTAND".equals(cfg.getDisplayMode())
+                && !format.contains("{name}")) {
+            String customName = entity.getCustomName();
+            if (customName != null && !customName.isEmpty()) {
+                format = format + "\n" + customName;
             }
         }
 
         format = format
-                .replace("{name}", mobName)
+                .replace("{name}", getMobName(entity, cfg))
                 .replace("{type}", entity.getType().name())
-                .replace("{current}", String.valueOf(current))
-                .replace("{max}", String.valueOf(max))
-                .replace("{bar}", bar)
-                .replace("{percent}", String.format("%.1f", percent));
+                .replace("{current}", trim(health))
+                .replace("{max}", trim(max))
+                .replace("{bar}", cfg.getBar(ratio))
+                .replace("{percent}", String.format(Locale.US, "%.1f", ratio * 100.0));
 
-        // PlaceholderAPI support
         if (plugin.isPapiEnabled()) {
             try {
                 format = me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(viewer, format);
-            } catch (Exception ignored) {}
+            } catch (Exception ex) {
+                debug("PlaceholderAPI failed to resolve a tag format", ex);
+            }
         }
 
-        return colorize(format);
+        return TextUtil.colorize(format);
+    }
+
+    /** One decimal place, but without a trailing ".0" on whole numbers. */
+    private static String trim(double value) {
+        double rounded = Math.round(value * 10.0) / 10.0;
+        if (rounded == Math.rint(rounded)) return String.valueOf((long) rounded);
+        return String.format(Locale.US, "%.1f", rounded);
     }
 
     private String getMobName(LivingEntity entity, MobTagConfig cfg) {
-        if (entity.getCustomName() != null && !entity.getCustomName().isEmpty()) {
-            return entity.getCustomName();
-        }
-        if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity) && cfg.isShowMythicName()) {
+        String customName = entity.getCustomName();
+        if (customName != null && !customName.isEmpty()) return customName;
+
+        if (plugin.isMythicMobsEnabled() && cfg.isShowMythicName()
+                && plugin.getMythicMobsHook().isMythicMob(entity)) {
             return plugin.getMythicMobsHook().getMythicMobName(entity);
         }
         return formatTypeName(entity.getType().name());
     }
 
-    private String buildBar(double current, double max, MobTagConfig cfg) {
-        int length = cfg.getBarLength();
-        double ratio = Math.min(1.0, current / max);
-        int filled = (int) Math.round(ratio * length);
-        int empty = length - filled;
-
-        String filledColorStr = cfg.getFilledColor();
-        if ("gradient".equalsIgnoreCase(filledColorStr)) {
-            double pct = ratio * 100;
-            if (pct > 60) filledColorStr = cfg.getGradientHigh();
-            else if (pct > 30) filledColorStr = cfg.getGradientMedium();
-            else filledColorStr = cfg.getGradientLow();
-        }
-
-        String emptyColorStr = cfg.getEmptyColor();
-        StringBuilder bar = new StringBuilder();
-        bar.append(colorize(filledColorStr));
-        bar.append(cfg.getFilledChar().repeat(Math.max(0, filled)));
-        bar.append(colorize(emptyColorStr));
-        bar.append(cfg.getEmptyChar().repeat(Math.max(0, empty)));
-
-        return bar.toString();
-    }
-
-    private String formatTypeName(String type) {
-        String[] words = type.toLowerCase().split("_");
-        StringBuilder sb = new StringBuilder();
+    private static String formatTypeName(String type) {
+        String[] words = type.toLowerCase(Locale.ROOT).split("_");
+        StringBuilder sb = new StringBuilder(type.length());
         for (String word : words) {
-            if (!word.isEmpty()) {
-                sb.append(Character.toUpperCase(word.charAt(0)))
-                  .append(word.substring(1))
-                  .append(" ");
-            }
+            if (word.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
         }
-        return sb.toString().trim();
+        return sb.toString();
     }
 
+    /** @deprecated kept so older integrations keep compiling; use {@link TextUtil#colorize}. */
+    @Deprecated
     public static String colorize(String text) {
-        if (text == null) return "";
-        // Hex colors &#RRGGBB
-        text = text.replaceAll("&#([A-Fa-f0-9]{6})", "\u00A7x\u00A7$1"
-                .replace("$1", ""));
-        // Manual hex parsing
-        StringBuilder sb = new StringBuilder();
-        int i = 0;
-        while (i < text.length()) {
-            if (i + 7 < text.length() && text.charAt(i) == '&' && text.charAt(i + 1) == '#') {
-                String hex = text.substring(i + 2, i + 8);
-                if (hex.matches("[0-9A-Fa-f]{6}")) {
-                    sb.append('\u00A7').append('x');
-                    for (char c : hex.toCharArray()) {
-                        sb.append('\u00A7').append(c);
-                    }
-                    i += 8;
-                    continue;
-                }
-            }
-            sb.append(text.charAt(i));
-            i++;
-        }
-        return ChatColor.translateAlternateColorCodes('&', sb.toString());
+        return TextUtil.colorize(text);
     }
 
+    // ── Lifecycle / API ──────────────────────────────────────────────────────
+
+    /**
+     * Drops the display only. Used when a mob merely stops being visible - a chunk unload, for
+     * instance - so its combat history survives until the mob itself is gone.
+     */
     public void removeTag(UUID uid) {
         TagDisplay display = tags.remove(uid);
         if (display != null) display.remove();
+    }
+
+    /**
+     * Drops the display and the combat history. Without clearing the history here, every mob a
+     * player ever hit stayed in memory for the lifetime of the server.
+     */
+    public void forgetEntity(UUID uid) {
+        removeTag(uid);
+        lastDamager.remove(uid);
+        lastDamageTime.remove(uid);
     }
 
     public void removeAllTags() {
@@ -405,26 +427,83 @@ public class MobTagManager {
         }
         tags.clear();
         lastDamager.clear();
-        me.abood8001.mobtag.scheduler.SchedulerAdapter.cancelAllTasks(plugin);
+        lastDamageTime.clear();
+    }
+
+    /** Hides every tag from a player who is leaving, without disturbing anyone else. */
+    public void removeViewer(Player player) {
+        for (TagDisplay display : tags.values()) {
+            display.hideFrom(player);
+        }
+    }
+
+    /** Armor stands spawn hidden, so a joining player must be told about the ones already alive. */
+    public void hideExistingFrom(Player joiner) {
+        for (TagDisplay display : tags.values()) {
+            if (display instanceof ArmorStandDisplay stand) {
+                stand.hideOnJoin(joiner);
+            } else {
+                display.hideFrom(joiner);
+            }
+        }
     }
 
     public void setLastDamager(UUID mobUID, UUID playerUID) {
         lastDamager.put(mobUID, playerUID);
+        lastDamageTime.put(mobUID, System.currentTimeMillis());
+    }
+
+    /** Records combat even when no player was involved, for out-of-combat hiding. */
+    public void markDamaged(UUID mobUID) {
+        lastDamageTime.put(mobUID, System.currentTimeMillis());
     }
 
     public Map<UUID, TagDisplay> getTags() {
         return tags;
     }
 
-    private boolean isLookingAt(Player player, LivingEntity entity, MobTagConfig cfg) {
+    public int getTagCount() {
+        return tags.size();
+    }
+
+    public int getLastScanned() {
+        return lastScanned;
+    }
+
+    public double getLastLoopMillis() {
+        return lastLoopNanos / 1_000_000.0D;
+    }
+
+    /**
+     * Removes armor stands MobTag left behind if the server died without a clean shutdown.
+     */
+    public int sweepOrphanedStands() {
+        int removed = 0;
+        for (World world : Bukkit.getWorlds()) {
+            for (ArmorStand stand : world.getEntitiesByClass(ArmorStand.class)) {
+                if (stand.getScoreboardTags().contains(ArmorStandDisplay.MARKER_TAG)) {
+                    stand.remove();
+                    removed++;
+                }
+            }
+        }
+        return removed;
+    }
+
+    private void debug(String message, Throwable error) {
+        if (plugin.getMobTagConfig().isDebug()) {
+            plugin.getLogger().log(Level.WARNING, "[debug] " + message, error);
+        }
+    }
+
+    /** Ray trace helper retained for API compatibility with earlier versions. */
+    public boolean isLookingAt(Player player, LivingEntity entity, MobTagConfig cfg) {
         RayTraceResult result = player.getWorld().rayTraceEntities(
                 player.getEyeLocation(),
                 player.getEyeLocation().getDirection(),
                 cfg.getLookingLen(),
                 e -> !e.equals(player)
         );
-        if (result == null) return false;
-        return entity.equals(result.getHitEntity());
+        return result != null && entity.equals(result.getHitEntity());
     }
-
 }

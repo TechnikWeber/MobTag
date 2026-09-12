@@ -14,18 +14,17 @@ softdepend:
 
 commands:
   mobtag:
-    description: MobTag main command
-    usage: /mobtag reload|toggle
+    description: Open the MobTag settings menu
+    usage: /mobtag [toggle <mobs|players|damage> | admin <reload|debug>]
     permission: mobtag.use
 
 permissions:
-  mobtag.admin:
-    description: Allows use of /mobtag reload
-    default: op
-  mobtag.toggle:
-    description: Allows toggling mob health tags
-    default: true
   mobtag.use:
-    description: Base permission
+    description: Base permission, required to run /mobtag at all
     default: true
-
+  mobtag.toggle:
+    description: Allows opening the settings menu and toggling your own tags
+    default: true
+  mobtag.admin:
+    description: Allows /mobtag admin reload and /mobtag admin debug
+    default: op

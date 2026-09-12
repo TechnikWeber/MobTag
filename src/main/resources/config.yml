@@ -3,14 +3,38 @@
 # ║        by Abood_8001                 ║
 # ╚══════════════════════════════════════╝
 
+# Internal. Do not edit — MobTag uses this to merge in new options on update
+# without touching the settings you already changed.
+config-version: 2
+
 # -----------------------------------------------
 # GENERAL SETTINGS
 # -----------------------------------------------
+
+# Log the full stack trace when something goes wrong internally.
+# Leave this off unless you are chasing a bug.
+debug: false
 
 # Worlds where MobTag will NOT display tags
 blacklisted-worlds:
   - example_world1
   - example_world2
+
+# How often (in ticks) the tags are updated.
+# 1 second = 20 ticks. Lower = smoother but more CPU. Recommended: 4
+update-interval: 4
+
+# The range (in blocks) a player must be within to see a tag.
+display-range: 16.0
+
+# -----------------------------------------------
+# TEXT FORMATTING
+# -----------------------------------------------
+# When enabled, formats written with MiniMessage tags (e.g. <gradient:#ff0000:#00ff00>)
+# are rendered with MiniMessage. Requires a server that ships Adventure — on servers
+# that do not, MobTag falls back to legacy codes automatically and nothing breaks.
+# Legacy '&' codes and '&#RRGGBB' hex always work regardless of this setting.
+use-minimessage: true
 
 # -----------------------------------------------
 # BEDROCK DETECTION (for Geyser/Floodgate servers)
@@ -21,44 +45,94 @@ bedrock:
   # Fallback: detect Bedrock players by username prefix
   prefix: "."
 
-# How often (in ticks) the tags are updated.
-# 1 second = 20 ticks. Lower = smoother but more CPU. Recommended: 4
-update-interval: 4
+# -----------------------------------------------
+# DISPLAY MODE
+# -----------------------------------------------
+# Options:
+#   AUTO        - Automatically uses PacketEvents if installed, ArmorStand otherwise
+#   ARMORSTAND  - Always use ArmorStands (works everywhere)
+#   PACKET      - Always use PacketEvents (smooth movement, requires PacketEvents plugin)
+display-mode: AUTO
 
-# The range (in blocks) a player must be within to see a tag.
-display-range: 16.0
+# ArmorStand mode only.
+armorstand:
+  # Attach the tag to the mob as a real passenger. Motion becomes perfectly smooth,
+  # but tag-height-offset no longer applies (the client positions the tag itself) and
+  # the mob can no longer be ridden. Leave false to keep the classic behaviour.
+  ride-mob: false
 
-# The max length for check tag mobe (ONLY LOOKING_AT MODE)
-looking-len: 5.0
+# -----------------------------------------------
+# VISIBILITY
+# -----------------------------------------------
+# Who can see the tags?
+#   ALL        - All players within range see the tag
+#   DAMAGER    - Only the player who last damaged the mob sees the tag
+#   LOOKING_AT - Only the player currently looking at the mob sees the tag
+visibility-mode: ALL
 
+# How far the LOOKING_AT ray reaches, in blocks.
+looking-at-range: 5.0
+
+# Require an unobstructed view in LOOKING_AT mode, so you cannot target
+# a mob through a wall.
+looking-at-requires-line-of-sight: true
+
+# DAMAGER mode: stop showing the tag this many seconds after the last hit.
+# Set to 0 to remember the damager forever.
+damager-timeout-seconds: 30
+
+# Ignore peaceful mobs (cows, pigs, sheep, etc)?
+# Detected by mob behaviour, so modded and newly added animals are covered automatically.
+ignore-passive: false
+
+# Ignore player entities? Must be false for player-tags below to do anything.
+ignore-players: true
+
+# Should tags be shown on boss mobs (Ender Dragon, Wither)?
+show-on-bosses: true
+
+# Extra entity types to treat as bosses for the setting above.
+extra-boss-types:
+  - WARDEN
+  - ELDER_GUARDIAN
+
+# Hide the tag while the mob is on full health.
+hide-at-full-health: false
+
+# Hide the tag this many seconds after the mob was last damaged.
+# Set to 0 to always show tags regardless of combat.
+hide-after-seconds-out-of-combat: 0
+
+# Do not tag mobs or players under an invisibility effect.
+hide-on-invisible: true
+
+# Do not tag players hidden by a vanish plugin (Essentials, CMI, SuperVanish, PremiumVanish).
+hide-on-vanished: true
+
+# Skip any entity carrying one of these metadata keys.
+# Covers NPC and pet plugins — add your own as needed.
+ignore-metadata:
+  - NPC
+  - shopkeeper
+  - citizens-npc
+
+# -----------------------------------------------
+# TAG POSITION AND SIZE
+# -----------------------------------------------
 # Height offset of the tag above the mob's head (in blocks).
 # Bedrock players (via Geyser) often need a different offset.
 tag-height-offset:
   java: 0.3
   bedrock: 0.0
+  # Per entity type overrides. Useful because the client anchors a packet tag to the
+  # mob's rider position, which sits at a different height on each mob.
+  per-type: {}
+  #  ENDER_DRAGON: 1.5
+  #  BEE: 0.1
 
-# Display mode for health tags
-# Options:
-#   AUTO        - Automatically uses PacketEvents if installed, ArmorStand otherwise
-#   ARMORSTAND  - Always use ArmorStands (works everywhere, slight stutter when mob moves)
-#   PACKET      - Always use PacketEvents (smooth movement, requires PacketEvents plugin)
-display-mode: AUTO
-
-# Who can see the tags?
-# Options:
-#   ALL     - All players within range see the tag
-#   DAMAGER - Only the player who last damaged the mob sees the tag
-#   LOOKING_AT - Only the player currently looking at the mob sees the tag
-visibility-mode: ALL
-
-# Ignore peaceful mobs (cows, pigs, sheep, etc)?
-ignore-passive: false
-
-# Ignore player entities? (set false AND enable player-tags below to show player health)
-ignore-players: true
-
-# Should tags be shown on boss mobs (Ender Dragon, Wither)?
-show-on-bosses: true
+# Size multiplier for packet-based tags (PACKET mode only).
+# 1.0 = default, 0.5 = half size, 2.0 = double size.
+tag-scale: 1.0
 
 # -----------------------------------------------
 # PLAYER TAGS
@@ -82,13 +156,14 @@ player-tags:
 # Available placeholders:
 #   {name}       - Mob's custom name (or type if no custom name)
 #   {type}       - Mob entity type (e.g. ZOMBIE)
-#   {current}    - Current health (rounded to 1 decimal)
-#   {max}        - Max health (rounded to 1 decimal)
+#   {current}    - Current health
+#   {max}        - Max health
 #   {bar}        - Health bar (see health-bar section below)
 #   {percent}    - Health percentage (e.g. 75.0)
 #
 # Color codes: Use & followed by a color code (e.g. &c = red, &a = green)
-# Hex colors: Use &#RRGGBB format (e.g. &#ff0000 = red)
+# Hex colors:  Use &#RRGGBB format (e.g. &#ff0000 = red)
+# MiniMessage: <red>, <gradient:#ff0000:#0000ff>, ... when use-minimessage is on
 # -----------------------------------------------
 
 tag-format: "&c❤ &f{current}&7/&f{max}"
@@ -161,13 +236,6 @@ entity-formats:
   WITHER: "&8❤ &f{current}&7/&f{max} &7| {bar} &8[Wither]"
 
 # -----------------------------------------------
-# TAG SCALE
-# -----------------------------------------------
-# Size multiplier for packet-based tags (PACKET mode only).
-# 1.0 = default, 0.5 = half size, 2.0 = double size.
-tag-scale: 1.0
-
-# -----------------------------------------------
 # DAMAGE ANIMATION
 # -----------------------------------------------
 # Animate the tag when the mob takes damage (PACKET mode only).
@@ -193,8 +261,14 @@ damage-indicator:
   motion: UP
   # How far it travels over its lifetime (in blocks)
   motion-distance: 1.0
-  # Fade out near the end of its lifetime?
+  # Fade out towards the end of its lifetime?
   fade-out: true
+  # Repeated hits on the same mob within this many ticks stack into one running
+  # total instead of spawning a new number each time. Set to 0 to disable merging.
+  merge-window-ticks: 10
+  # Hard cap on how many damage numbers a single player can see at once.
+  # Stops AoE attacks and grinders from flooding the client.
+  max-per-player: 24
 
 # -----------------------------------------------
 # UPDATE CHECKER
@@ -210,3 +284,6 @@ messages:
   reload-success: "&aConfiguration reloaded successfully!"
   no-permission: "&cYou don't have permission to do that."
   unknown-command: "&cUnknown sub-command. Usage: /mobtag admin reload"
+  players-only: "&cOnly players can use that."
+  toggle-on: "&a{feature} enabled."
+  toggle-off: "&c{feature} disabled."

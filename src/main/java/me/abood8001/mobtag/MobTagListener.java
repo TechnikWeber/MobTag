@@ -1,7 +1,12 @@
 package me.abood8001.mobtag;
 
-
+import me.abood8001.mobtag.display.PacketDisplay;
+import me.abood8001.mobtag.display.TagDisplay;
+import me.abood8001.mobtag.scheduler.SchedulerAdapter;
+import me.abood8001.mobtag.util.EntityUtil;
+import me.abood8001.mobtag.util.TextUtil;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -9,8 +14,10 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
-
 
 public class MobTagListener implements Listener {
 
@@ -21,105 +28,104 @@ public class MobTagListener implements Listener {
     }
 
     /**
-     * Track who last damaged the mob (used for DAMAGER visibility mode).
+     * Tracks who last damaged a mob and fires the damage indicator / tag animation.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof LivingEntity entity)) return;
         if (entity instanceof ArmorStand) return;
 
-        if (event.getDamager() instanceof Player player) {
-            plugin.getTagManager().setLastDamager(entity.getUniqueId(), player.getUniqueId());
-            var cfg = plugin.getMobTagConfig();
+        plugin.getTagManager().markDamaged(entity.getUniqueId());
 
-            boolean targetIsPlayer = entity instanceof Player;
-            boolean dmgIndicatorAllowed = cfg.isDamageIndicatorEnabled()
-                    && plugin.isPacketEventsEnabled()
-                    && !"ARMORSTAND".equals(cfg.getDisplayMode())
-                    && (!targetIsPlayer || cfg.isDamageIndicatorShowOnPlayers())
-                    && !plugin.getToggleManager().isDamageIndicatorHidden(player.getUniqueId());
-            if (dmgIndicatorAllowed) {
-                double damage = Math.round(event.getFinalDamage() * 10.0) / 10.0;
-                boolean crit = player.getFallDistance() > 0 && !player.isOnGround();
-                String fmt = crit ? cfg.getDamageIndicatorCritFormat() : cfg.getDamageIndicatorFormat();
-                String text = me.abood8001.mobtag.MobTagManager.colorize(fmt.replace("{damage}", String.valueOf(damage)));
-                // Spawn at the entity's surface facing the player (not inside the body)
-                org.bukkit.util.Vector toPlayer = player.getLocation().toVector()
-                        .subtract(entity.getLocation().toVector());
-                toPlayer.setY(0);
-                if (toPlayer.lengthSquared() > 0) toPlayer.normalize();
-                double surfaceOffset = entity.getWidth() / 2.0 + 0.2;
-                org.bukkit.Location loc = entity.getLocation().clone()
-                        .add(toPlayer.multiply(surfaceOffset))
-                        .add(0, entity.getHeight() + cfg.getDamageIndicatorHeight(), 0);
+        // Unwraps projectiles, so bows, crossbows, tridents, snowballs and splash potions all
+        // count as player damage instead of being ignored entirely.
+        Player player = EntityUtil.resolveDamager(event.getDamager());
+        if (player == null) return;
 
-                new me.abood8001.mobtag.display.DamageIndicator(
-                        loc, text, player, plugin,
-                        cfg.getDamageIndicatorMotion(),
-                        cfg.getDamageIndicatorMotionDistance(),
-                        cfg.getDamageIndicatorDuration(),
-                        cfg.isDamageIndicatorFadeOut(),
-                        entity
-                );
-            }
+        plugin.getTagManager().setLastDamager(entity.getUniqueId(), player.getUniqueId());
 
-            if (cfg.isDamageAnimationEnabled() && plugin.isPacketEventsEnabled()
-                    && !"ARMORSTAND".equals(cfg.getDisplayMode())) {
-                var display = plugin.getTagManager().getTags().get(entity.getUniqueId());
-                if (display instanceof me.abood8001.mobtag.display.PacketDisplay pd) {
-                    pd.playDamageAnimation(cfg.isDamageFlash(), cfg.isDamageScaleBounce(),
-                            cfg.getDamageAnimationDuration(), plugin);
-                }
+        MobTagConfig cfg = plugin.getMobTagConfig();
+        boolean packetMode = plugin.isPacketEventsEnabled() && !"ARMORSTAND".equals(cfg.getDisplayMode());
+        if (!packetMode) return;
+
+        boolean targetIsPlayer = entity instanceof Player;
+        boolean indicatorAllowed = cfg.isDamageIndicatorEnabled()
+                && (!targetIsPlayer || cfg.isDamageIndicatorShowOnPlayers())
+                && !plugin.getToggleManager().isDamageIndicatorHidden(player.getUniqueId());
+
+        if (indicatorAllowed && plugin.getIndicatorManager() != null) {
+            double damage = Math.round(event.getFinalDamage() * 10.0) / 10.0;
+            plugin.getIndicatorManager().spawn(player, entity, damage, isCritical(player, event.getDamager()));
+        }
+
+        if (cfg.isDamageAnimationEnabled()) {
+            TagDisplay display = plugin.getTagManager().getTags().get(entity.getUniqueId());
+            if (display instanceof PacketDisplay pd) {
+                pd.playDamageAnimation(cfg.isDamageFlash(), cfg.isDamageScaleBounce(),
+                        cfg.getDamageAnimationDuration(), plugin);
             }
         }
     }
 
     /**
-     * Remove the tag when the mob dies.
+     * Approximates vanilla's critical-hit rule. Bukkit exposes no crit flag, so this mirrors the
+     * conditions the client uses: a falling melee hit that is not a sprint attack and not
+     * assisted by a vehicle or a status effect. Projectiles are never melee crits.
      */
+    private boolean isCritical(Player player, Entity damager) {
+        if (!player.equals(damager)) return false; // arrows have their own crit visuals
+        return player.getFallDistance() > 0.0F
+                && !player.isSprinting()
+                && !player.isInsideVehicle()
+                && !player.isClimbing()
+                && !player.isInWater()
+                && player.getPotionEffect(org.bukkit.potion.PotionEffectType.BLINDNESS) == null;
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onEntityDeath(EntityDeathEvent event) {
-        plugin.getTagManager().removeTag(event.getEntity().getUniqueId());
+        plugin.getTagManager().forgetEntity(event.getEntity().getUniqueId());
     }
 
     @EventHandler
-    public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+    public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        for (var display : plugin.getTagManager().getTags().values()) {
-            if (display instanceof me.abood8001.mobtag.display.PacketDisplay pd) {
-                pd.removeFor(player);
-            }
+        plugin.getTagManager().removeViewer(player);
+        if (plugin.getIndicatorManager() != null) {
+            plugin.getIndicatorManager().removeFor(player.getUniqueId());
         }
     }
 
     @EventHandler
-    public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+    public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            for (var display : plugin.getTagManager().getTags().values()) {
-                if (display instanceof me.abood8001.mobtag.display.PacketDisplay pd) {
-                    pd.removeFor(player);
-                }
-            }
-            var uc = plugin.getUpdateChecker();
-            if (uc != null && uc.isUpdateAvailable() && player.hasPermission("mobtag.admin")) {
-                player.sendMessage(me.abood8001.mobtag.MobTagManager.colorize(
+        // Immediately, not on a delay: armor stands spawned before this player joined are
+        // visible to them by default, and a one second window of wrong tags is a visible bug.
+        plugin.getTagManager().hideExistingFrom(player);
+
+        SchedulerAdapter.runTaskLater(plugin, () -> {
+            if (!player.isOnline()) return;
+
+            var checker = plugin.getUpdateChecker();
+            if (checker != null && checker.isUpdateAvailable() && player.hasPermission("mobtag.admin")) {
+                player.sendMessage(TextUtil.colorize(
                         "&e[MobTag] &fA new update is available! &7Current: &f"
-                                + plugin.getDescription().getVersion() + " &7Latest: &a" + uc.getLatestVersion()));
-                player.sendMessage(me.abood8001.mobtag.MobTagManager.colorize(
+                                + plugin.getPluginVersion() + " &7Latest: &a" + checker.getLatestVersion()));
+                player.sendMessage(TextUtil.colorize(
                         "&7Download: &bhttps://www.spigotmc.org/resources/135699"));
             }
-        }, 20L); // 1-second delay
+        }, 20L);
     }
 
+    /** A world change invalidates every tag the player was being shown. */
+    @EventHandler
+    public void onWorldChange(PlayerChangedWorldEvent event) {
+        plugin.getTagManager().removeViewer(event.getPlayer());
+    }
 
-
-    /**
-     * Clean up tags for mobs in unloaded chunks.
-     */
     @EventHandler
     public void onChunkUnload(ChunkUnloadEvent event) {
-        for (var entity : event.getChunk().getEntities()) {
+        for (Entity entity : event.getChunk().getEntities()) {
             if (entity instanceof LivingEntity && !(entity instanceof Player)) {
                 plugin.getTagManager().removeTag(entity.getUniqueId());
             }

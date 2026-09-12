@@ -4,12 +4,12 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityDataTypes;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
+import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityTeleport;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
-import me.abood8001.mobtag.MobTag;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -19,135 +19,160 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * A single floating damage number. Ticked centrally by {@link IndicatorManager} rather than
+ * owning a Bukkit task of its own, so a busy grinder cannot spawn hundreds of schedulers.
+ */
 public class DamageIndicator {
+
+    private static final AtomicInteger ID_POOL = new AtomicInteger(Integer.MAX_VALUE / 2);
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacySection();
 
     private final int entityId;
     private final UUID uuid;
     private final Player viewer;
-    private final String text;
-    private Location currentLoc;
-    private final Vector motionPerTick;
+    private final UUID viewerId;
+    private final UUID mobId;
     private final int duration;
     private final boolean fadeOut;
-    private int ticksLived = 0;
+    private final Location currentLoc;
+    private final Vector motionPerTick;
 
-    public DamageIndicator(Location loc, String text, Player viewer, MobTag plugin,
-                           String motion, double motionDistance, int duration, boolean fadeOut,
-                           org.bukkit.entity.LivingEntity mob) {
-        this.entityId = ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE / 2, Integer.MAX_VALUE);
+    private String text;
+    private double totalDamage;
+    private boolean crit;
+    private int ticksLived = 0;
+    private boolean removed = false;
+    /** Manager tick of the most recent hit folded into this indicator, for the merge window. */
+    private long lastHitTick;
+
+    DamageIndicator(Location loc, String text, double damage, boolean crit, Player viewer, UUID mobId,
+                    Vector direction, double motionDistance, int duration, boolean fadeOut) {
+        this.entityId = ID_POOL.decrementAndGet();
         this.uuid = UUID.randomUUID();
         this.viewer = viewer;
+        this.viewerId = viewer.getUniqueId();
+        this.mobId = mobId;
         this.text = text;
+        this.totalDamage = damage;
+        this.crit = crit;
         this.duration = duration;
         this.fadeOut = fadeOut;
 
-        // slight random horizontal spawn offset
+        // Slight horizontal jitter so stacked hits do not perfectly overlap.
         double offsetX = (ThreadLocalRandom.current().nextDouble() - 0.5) * 0.6;
         double offsetZ = (ThreadLocalRandom.current().nextDouble() - 0.5) * 0.6;
         this.currentLoc = loc.clone().add(offsetX, 0, offsetZ);
-
-        // Calculate motion vector per tick
-        Vector dir;
-        switch (motion) {
-            case "DOWN":
-                dir = new Vector(0, -1, 0);
-                break;
-            case "FORWARD":
-                // toward the player who hit the mob
-                dir = viewer.getLocation().toVector().subtract(mob.getLocation().toVector());
-                dir.setY(0);
-                if (dir.lengthSquared() > 0) dir.normalize();
-                break;
-            case "RANDOM":
-                dir = new Vector(
-                        ThreadLocalRandom.current().nextDouble() - 0.5,
-                        ThreadLocalRandom.current().nextDouble(),
-                        ThreadLocalRandom.current().nextDouble() - 0.5).normalize();
-                break;
-            case "NONE":
-                dir = new Vector(0, 0, 0);
-                break;
-            case "UP":
-            default:
-                dir = new Vector(0, 1, 0);
-                break;
-        }
-        // total distance spread over duration
-        this.motionPerTick = dir.multiply(motionDistance / Math.max(1, duration));
+        this.motionPerTick = direction.clone().multiply(motionDistance / Math.max(1, duration));
 
         spawn();
-        startMotion(plugin);
+    }
+
+    UUID getViewerId() { return viewerId; }
+
+    UUID getMobId() { return mobId; }
+
+    double getTotalDamage() { return totalDamage; }
+
+    boolean isCrit() { return crit; }
+
+    boolean isRemoved() { return removed; }
+
+    long getLastHitTick() { return lastHitTick; }
+
+    void setLastHitTick(long tick) { this.lastHitTick = tick; }
+
+    /** Folds another hit into this indicator instead of spawning a second one on the same mob. */
+    void merge(double extraDamage, boolean extraCrit,
+               java.util.function.BiFunction<Double, Boolean, String> renderer) {
+        this.totalDamage = Math.round((this.totalDamage + extraDamage) * 10.0) / 10.0;
+        this.crit = this.crit || extraCrit;
+        this.text = renderer.apply(this.totalDamage, this.crit);
+        this.ticksLived = 0; // restart the lifetime so the running total stays readable
+        User user = user();
+        if (user != null) user.sendPacket(buildMeta(255));
     }
 
     private void spawn() {
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(viewer);
+        User user = user();
         if (user == null) return;
 
-        WrapperPlayServerSpawnEntity spawnPacket = new WrapperPlayServerSpawnEntity(
+        user.sendPacket(new WrapperPlayServerSpawnEntity(
                 entityId,
                 Optional.of(uuid),
                 EntityTypes.TEXT_DISPLAY,
                 new Vector3d(currentLoc.getX(), currentLoc.getY(), currentLoc.getZ()),
                 0f, 0f, 0f, 0,
                 Optional.empty()
-        );
-
-        user.sendPacket(spawnPacket);
+        ));
         user.sendPacket(buildMeta(255));
     }
 
-    private void startMotion(MobTag plugin) {
-        org.bukkit.Bukkit.getScheduler().runTaskTimer(plugin, task -> {
-            ticksLived++;
-            if (ticksLived >= duration) {
-                remove();
-                task.cancel();
-                return;
-            }
+    /** Advances one tick. Returns false once this indicator is finished and should be dropped. */
+    boolean tick() {
+        if (removed) return false;
+        if (!viewer.isOnline()) {
+            removed = true;
+            return false;
+        }
 
-            currentLoc.add(motionPerTick);
+        ticksLived++;
+        if (ticksLived >= duration) {
+            remove();
+            return false;
+        }
 
-            var user = PacketEvents.getAPI().getPlayerManager().getUser(viewer);
-            if (user == null || !viewer.isOnline()) {
-                task.cancel();
-                return;
-            }
+        User user = user();
+        if (user == null) {
+            removed = true;
+            return false;
+        }
 
-            // Teleport packet to move it
-            user.sendPacket(new WrapperPlayServerEntityTeleport(
-                    entityId,
-                    new Vector3d(currentLoc.getX(), currentLoc.getY(), currentLoc.getZ()),
-                    0f, 0f, false
-            ));
+        currentLoc.add(motionPerTick);
+        user.sendPacket(new WrapperPlayServerEntityTeleport(
+                entityId,
+                new Vector3d(currentLoc.getX(), currentLoc.getY(), currentLoc.getZ()),
+                0f, 0f, false
+        ));
 
-            // Fade out via text opacity
-            if (fadeOut) {
-                int alpha = (int) (255 * (1.0 - ((double) ticksLived / duration)));
-                alpha = Math.max(0, Math.min(255, alpha));
-                user.sendPacket(buildMeta(alpha));
-            }
-        }, 1L, 1L);
+        if (fadeOut) {
+            int alpha = (int) (255 * (1.0 - ((double) ticksLived / duration)));
+            user.sendPacket(buildMeta(alpha));
+        }
+        return true;
     }
 
     private WrapperPlayServerEntityMetadata buildMeta(int alpha) {
-        net.kyori.adventure.text.Component component =
-                LegacyComponentSerializer.legacySection().deserialize(text);
+        // Index 26 is an unsigned alpha byte: -1 (0xFF) is fully opaque, 0 fully transparent.
+        // A plain cast maps 255 -> -1 correctly; the old "alpha - 128" wrapped mid-fade and made
+        // the number blink back to full brightness halfway through.
+        int clamped = Math.max(0, Math.min(255, alpha));
 
         List<EntityData<?>> data = List.of(
-                new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),
-                new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, component),
-                // text opacity (index 26) - byte, -1 = opaque, lower = transparent
-                new EntityData<>(26, EntityDataTypes.BYTE, (byte) (alpha - 128)),
-                new EntityData<>(27, EntityDataTypes.BYTE, (byte) 1)
+                new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),   // billboard: CENTER
+                new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, LEGACY.deserialize(text)),
+                new EntityData<>(26, EntityDataTypes.BYTE, (byte) clamped),
+                new EntityData<>(27, EntityDataTypes.BYTE, (byte) 1)    // shadow
         );
         return new WrapperPlayServerEntityMetadata(entityId, data);
     }
 
-    public void remove() {
-        var user = PacketEvents.getAPI().getPlayerManager().getUser(viewer);
+    void remove() {
+        if (removed) return;
+        removed = true;
+        User user = user();
         if (user != null) {
             user.sendPacket(new WrapperPlayServerDestroyEntities(entityId));
+        }
+    }
+
+    private User user() {
+        try {
+            return PacketEvents.getAPI().getPlayerManager().getUser(viewer);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 }

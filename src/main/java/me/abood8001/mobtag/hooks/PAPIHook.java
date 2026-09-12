@@ -1,22 +1,28 @@
 package me.abood8001.mobtag.hooks;
 
 import me.abood8001.mobtag.MobTag;
+import me.abood8001.mobtag.util.EntityUtil;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.attribute.Attribute;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Objects;
+import java.util.Locale;
 
 /**
- * Registers %mobtag_<placeholder>% via PlaceholderAPI.
+ * Registers %mobtag_&lt;placeholder&gt;% via PlaceholderAPI.
  *
- * Available placeholders (for use in other plugins via PAPI):
- *   %mobtag_nearby_mob_health%   - health of the nearest tagged mob to the player
- *   %mobtag_nearby_mob_maxhealth% - max health of the nearest tagged mob
- *   %mobtag_nearby_mob_name%     - name of the nearest tagged mob
+ * <pre>
+ *   %mobtag_nearby_mob_health%      health of the nearest tagged mob
+ *   %mobtag_nearby_mob_maxhealth%   max health of the nearest tagged mob
+ *   %mobtag_nearby_mob_percent%     health percentage of the nearest tagged mob
+ *   %mobtag_nearby_mob_bar%         rendered health bar of the nearest tagged mob
+ *   %mobtag_nearby_mob_name%        name of the nearest tagged mob
+ *   %mobtag_tags_hidden%            true/false for this player's mob tag toggle
+ *   %mobtag_indicators_hidden%      true/false for this player's damage indicator toggle
+ * </pre>
  */
 public class PAPIHook extends PlaceholderExpansion {
 
@@ -38,30 +44,48 @@ public class PAPIHook extends PlaceholderExpansion {
 
     @Override
     public @NotNull String getVersion() {
-        return plugin.getDescription().getVersion();
+        return plugin.getPluginVersion();
     }
 
     @Override
     public boolean persist() {
-        return true; // Don't unregister on reload
+        return true; // survives a PlaceholderAPI reload
     }
 
     @Override
     public @Nullable String onPlaceholderRequest(Player player, @NotNull String params) {
         if (player == null) return "";
 
-        double range = plugin.getMobTagConfig().getDisplayRange();
-        LivingEntity nearest = getNearestTaggedMob(player, range);
+        switch (params.toLowerCase(Locale.ROOT)) {
+            case "tags_hidden":
+                return String.valueOf(plugin.getToggleManager().isHidden(player.getUniqueId()));
+            case "indicators_hidden":
+                return String.valueOf(plugin.getToggleManager().isDamageIndicatorHidden(player.getUniqueId()));
+            default:
+                break;
+        }
 
-        switch (params.toLowerCase()) {
+        LivingEntity nearest = getNearestTaggedMob(player);
+
+        switch (params.toLowerCase(Locale.ROOT)) {
             case "nearby_mob_health":
-                if (nearest == null) return "0";
-                return String.valueOf(Math.round(nearest.getHealth() * 10.0) / 10.0);
+                return nearest == null ? "0" : format(nearest.getHealth());
 
             case "nearby_mob_maxhealth":
+                return nearest == null ? "0" : format(EntityUtil.getMaxHealth(nearest));
+
+            case "nearby_mob_percent": {
                 if (nearest == null) return "0";
-                double max = nearest.getMaxHealth();
-                return String.valueOf(Math.round(max * 10.0) / 10.0);
+                double max = EntityUtil.getMaxHealth(nearest);
+                if (max <= 0) return "0";
+                return String.format(Locale.US, "%.1f", (nearest.getHealth() / max) * 100.0);
+            }
+
+            case "nearby_mob_bar": {
+                if (nearest == null) return "";
+                double max = EntityUtil.getMaxHealth(nearest);
+                return plugin.getMobTagConfig().getBar(max > 0 ? nearest.getHealth() / max : 0);
+            }
 
             case "nearby_mob_name":
                 if (nearest == null) return "None";
@@ -72,18 +96,29 @@ public class PAPIHook extends PlaceholderExpansion {
         }
     }
 
-    private LivingEntity getNearestTaggedMob(Player player, double range) {
-        LivingEntity nearest = null;
-        double closestDist = range * range;
+    private static String format(double value) {
+        double rounded = Math.round(value * 10.0) / 10.0;
+        if (rounded == Math.rint(rounded)) return String.valueOf((long) rounded);
+        return String.format(Locale.US, "%.1f", rounded);
+    }
 
-        for (var uid : plugin.getTagManager().getTags().keySet()) {
-            var entity = player.getServer().getEntity(uid);
-            if (!(entity instanceof LivingEntity le)) continue;
-            if (le.getWorld() != player.getWorld()) continue;
-            double dist = le.getLocation().distanceSquared(player.getLocation());
-            if (dist < closestDist) {
-                closestDist = dist;
-                nearest = le;
+    /**
+     * Searches outward from the player rather than walking every tracked tag and resolving each
+     * one by UUID - the same inversion the main update loop uses.
+     */
+    private LivingEntity getNearestTaggedMob(Player player) {
+        double range = plugin.getMobTagConfig().getDisplayRange();
+        LivingEntity nearest = null;
+        double closest = range * range;
+
+        for (Entity entity : player.getNearbyEntities(range, range, range)) {
+            if (!(entity instanceof LivingEntity living)) continue;
+            if (!plugin.getTagManager().getTags().containsKey(entity.getUniqueId())) continue;
+
+            double distance = entity.getLocation().distanceSquared(player.getLocation());
+            if (distance < closest) {
+                closest = distance;
+                nearest = living;
             }
         }
         return nearest;
