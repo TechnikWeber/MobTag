@@ -3,9 +3,17 @@ package me.abood8001.mobtag;
 import me.abood8001.mobtag.util.TextUtil;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -14,11 +22,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Level;
 
 public class MobTagConfig {
 
     /** Bumped whenever new keys are added, so existing configs get merged rather than reset. */
-    public static final int CONFIG_VERSION = 5;
+    public static final int CONFIG_VERSION = 6;
 
     private final MobTag plugin;
 
@@ -152,11 +161,35 @@ public class MobTagConfig {
         int version = cfg.getInt("config-version", 0);
         if (version >= CONFIG_VERSION) return;
 
-        cfg.options().copyDefaults(true);
-        cfg.set("config-version", CONFIG_VERSION);
-        plugin.saveConfig();
-        plugin.getLogger().info("Config updated from version " + version + " to " + CONFIG_VERSION
-                + " - your existing settings were kept.");
+        // Rebuild from the bundled config.yml so every option keeps its comment and its place,
+        // then write the user's values back on top. The old approach (copyDefaults) appended
+        // new keys at the top of the file without any explanation.
+        File file = new File(plugin.getDataFolder(), "config.yml");
+        try (InputStream in = plugin.getResource("config.yml")) {
+            if (in == null) throw new IOException("bundled config.yml missing");
+            YamlConfiguration fresh = YamlConfiguration.loadConfiguration(
+                    new InputStreamReader(in, StandardCharsets.UTF_8));
+            for (String key : cfg.getKeys(true)) {
+                if (cfg.isConfigurationSection(key) || key.equals("config-version")) continue;
+                fresh.set(key, cfg.get(key));
+            }
+            fresh.set("config-version", CONFIG_VERSION);
+
+            if (file.exists()) {
+                Files.copy(file.toPath(), new File(plugin.getDataFolder(),
+                        "config.yml.v" + version + ".bak").toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            fresh.save(file);
+            plugin.reloadConfig();
+            plugin.getLogger().info("Config updated from version " + version + " to " + CONFIG_VERSION
+                    + " - your settings were kept, the old file is config.yml.v" + version + ".bak");
+        } catch (IOException ex) {
+            // Fall back to the old merge so a broken rebuild never costs anyone their settings.
+            plugin.getLogger().log(Level.WARNING, "Could not rebuild config.yml, merging new keys instead", ex);
+            cfg.options().copyDefaults(true);
+            cfg.set("config-version", CONFIG_VERSION);
+            plugin.saveConfig();
+        }
     }
 
     public void load() {

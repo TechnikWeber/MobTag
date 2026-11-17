@@ -25,15 +25,30 @@ small Java + Bedrock crossplay server. Goals of the fork:
 - tune how the tags look, on Java and on Bedrock
 - send useful fixes back upstream
 
+<p align="center">
+  <img src="docs/images/tag.png" alt="Classic health tag ❤ 25/25 above a llama" width="540">
+</p>
+
 ## What the fork adds
 
 - **Designs per player** in `/mobtag`: Classic, Bar, Bar + numbers, Dot (one green/yellow/red dot).
+  Each design can have its own scale and opacity.
   Server owners define their own under `styles:` in `config.yml`.
 - **Sizes per player**: small / medium / large (Java only, Bedrock keeps the normal size).
 - **When to show, per player**: always, only the mob you look at, or only mobs you fight.
 - **Target bar**: a boss bar with the mob you look at or fight, identical on Java and Bedrock.
 - Passive mobs (cows, sheep, …) are hidden by default.
 - Same choices as commands: `/mobtag style|size|show <value>`, `/mobtag toggle targetbar`.
+- Config updates keep every comment: new options land in their documented place, the old
+  file is kept as `config.yml.v<N>.bak`.
+
+Defaults for new players: Classic design, medium size, tags only on mobs you recently hit,
+target bar off. Players change this in `/mobtag`, server owners in `config.yml`.
+
+<p align="center">
+  <img src="docs/images/menu.png" alt="MobTag settings menu: switches in the top row, design, size, when to show and reset below" width="300">
+  <img src="docs/images/menu-design.png" alt="Design tooltip listing Classic, Bar, Bar + numbers and Dot with previews" width="430">
+</p>
 
 Per-player designs and sizes need [PacketEvents](https://modrinth.com/plugin/packetevents); without
 it everyone sees `default-style`.

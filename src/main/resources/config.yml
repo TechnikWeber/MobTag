@@ -5,7 +5,7 @@
 
 # Internal. Do not edit — MobTag uses this to merge in new options on update
 # without touching the settings you already changed.
-config-version: 5
+config-version: 6
 
 # -----------------------------------------------
 # GENERAL SETTINGS
