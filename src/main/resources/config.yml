@@ -68,7 +68,7 @@ armorstand:
 #   ALL        - All players within range see the tag
 #   DAMAGER    - Only the player who last damaged the mob sees the tag
 #   LOOKING_AT - Only the player currently looking at the mob sees the tag
-visibility-mode: ALL
+visibility-mode: DAMAGER
 
 # How far the LOOKING_AT ray reaches, in blocks.
 looking-at-range: 5.0
@@ -227,7 +227,7 @@ styles:
   dot:
     name: "&fDot"
     format: "{dot}"
-default-style: bar
+default-style: classic
 
 # Sizes, as a multiplier on tag-scale. Java only: Bedrock players (Geyser)
 # always see the normal size.

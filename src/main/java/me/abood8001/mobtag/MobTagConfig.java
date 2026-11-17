@@ -191,7 +191,7 @@ public class MobTagConfig {
         displayRange = Math.max(1.0D, cfg.getDouble("display-range", 16.0));
         lookingLen = Math.max(1.0D, cfg.getDouble("looking-at-range", cfg.getDouble("looking-len", 5.0)));
         lookingRequiresLineOfSight = cfg.getBoolean("looking-at-requires-line-of-sight", true);
-        visibilityMode = cfg.getString("visibility-mode", "ALL").toUpperCase(Locale.ROOT);
+        visibilityMode = cfg.getString("visibility-mode", "DAMAGER").toUpperCase(Locale.ROOT);
         damagerTimeoutSeconds = cfg.getInt("damager-timeout-seconds", 30);
         ignorePassive = cfg.getBoolean("ignore-passive", true);
         ignorePlayers = cfg.getBoolean("ignore-players", true);
@@ -287,7 +287,7 @@ public class MobTagConfig {
         if (styles.isEmpty()) {
             styles.put("classic", new Style("classic", "&fClassic", ""));
         }
-        defaultStyle = cfg.getString("default-style", "bar").toLowerCase(Locale.ROOT);
+        defaultStyle = cfg.getString("default-style", "classic").toLowerCase(Locale.ROOT);
         if (!styles.containsKey(defaultStyle)) defaultStyle = styles.keySet().iterator().next();
 
         sizes = new LinkedHashMap<>();
