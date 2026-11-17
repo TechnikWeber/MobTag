@@ -285,7 +285,7 @@ public class MobTagConfig {
         if (styles.isEmpty()) {
             styles.put("classic", new Style("classic", "&fClassic", ""));
         }
-        defaultStyle = cfg.getString("default-style", "classic").toLowerCase(Locale.ROOT);
+        defaultStyle = cfg.getString("default-style", "bar").toLowerCase(Locale.ROOT);
         if (!styles.containsKey(defaultStyle)) defaultStyle = styles.keySet().iterator().next();
 
         sizes = new LinkedHashMap<>();
@@ -311,7 +311,7 @@ public class MobTagConfig {
         for (int i = 0; i < tiers.length; i++) dotCache[i] = TextUtil.colorize(tiers[i]) + dotChar;
 
         targetBarEnabled = cfg.getBoolean("target-bar.enabled", true);
-        targetBarDefaultOn = cfg.getBoolean("target-bar.default-on", true);
+        targetBarDefaultOn = cfg.getBoolean("target-bar.default-on", false);
         targetBarRange = Math.max(1.0, cfg.getDouble("target-bar.range", 24.0));
         targetBarCombatSeconds = Math.max(0, cfg.getInt("target-bar.combat-seconds", 5));
         targetBarFormat = cfg.getString("target-bar.format", "&f{name} &c❤ &f{current}&7/&f{max}");

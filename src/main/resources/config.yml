@@ -227,7 +227,7 @@ styles:
   dot:
     name: "&fDot"
     format: "{dot}"
-default-style: classic
+default-style: bar
 
 # Sizes, as a multiplier on tag-scale. Java only: Bedrock players (Geyser)
 # always see the normal size.
@@ -253,7 +253,7 @@ default-size: medium
 target-bar:
   enabled: true
   # On for players who have not switched it off themselves?
-  default-on: true
+  default-on: false
   # How far you can look at a mob to get its bar (blocks).
   range: 24.0
   # Keep showing the mob you hit for this many seconds after you look away.
