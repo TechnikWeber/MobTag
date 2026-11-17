@@ -198,14 +198,24 @@ public class MobTagManager {
      * memory for the lifetime of the server.
      */
     private void pruneDamageHistory(MobTagConfig cfg, long now) {
-        long ttlSeconds = Math.max(cfg.getDamagerTimeoutSeconds(), cfg.getHideAfterSecondsOutOfCombat());
-        long ttl = Math.max(60L, ttlSeconds) * 1000L;
+        // Longest time any player may keep a tag after a hit. 0 anywhere means "unlimited",
+        // in which case entries only go once the mob itself is gone.
+        boolean unlimited = cfg.getDamagerTimeoutSeconds() <= 0 || cfg.getDurations().contains(0);
+        long longest = Math.max(cfg.getDamagerTimeoutSeconds(), cfg.getHideAfterSecondsOutOfCombat());
+        for (int d : cfg.getDurations()) longest = Math.max(longest, d);
+        long ttl = Math.max(60L, longest) * 1000L;
+
         lastDamageTime.entrySet().removeIf(entry -> {
-            if (now - entry.getValue() <= ttl) return false;
+            // A mob that died, despawned or sits in an unloaded chunk no longer needs a history;
+            // this is what keeps "unlimited" from growing forever.
+            Entity mob = Bukkit.getEntity(entry.getKey());
+            boolean gone = mob == null || !mob.isValid();
+            if (!gone && (unlimited || now - entry.getValue() <= ttl)) return false;
             lastDamager.remove(entry.getKey());
             return true;
         });
     }
+
 
     private Map<UUID, Entity> computeLookTargets(MobTagConfig cfg) {
         Map<UUID, Entity> targets = new HashMap<>();

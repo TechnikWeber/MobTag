@@ -5,7 +5,7 @@
 
 # Internal. Do not edit — MobTag uses this to merge in new options on update
 # without touching the settings you already changed.
-config-version: 7
+config-version: 8
 
 # -----------------------------------------------
 # GENERAL SETTINGS
@@ -82,8 +82,9 @@ looking-at-requires-line-of-sight: true
 # pick one of the "durations" below in /mobtag.
 damager-timeout-seconds: 30
 
-# Choices for "Duration" in /mobtag (seconds, 0 = until the mob dies).
-durations: [5, 10, 15, 30]
+# Choices for "Duration" in /mobtag, in seconds. 0 = unlimited: the tag stays
+# until the mob dies or despawns (MobTag then forgets it, so memory does not grow).
+durations: [5, 10, 15, 30, 600, 0]
 
 # Ignore peaceful mobs (cows, pigs, sheep, etc)?
 # Detected by mob behaviour, so modded and newly added animals are covered automatically.

@@ -185,7 +185,9 @@ public class MobTagGUI implements Listener {
     }
 
     public static String durationName(int seconds) {
-        return seconds <= 0 ? "until it dies" : seconds + "s";
+        if (seconds <= 0) return "unlimited";
+        if (seconds >= 60 && seconds % 60 == 0) return (seconds / 60) + " min";
+        return seconds + " s";
     }
 
     public static String showName(String mode) {

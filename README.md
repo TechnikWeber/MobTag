@@ -1,7 +1,7 @@
 # MobTag (TechnikWeber fork)
 
 <p>
-  <a href="https://github.com/TechnikWeber/MobTag/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/TechnikWeber/MobTag?include_prereleases&label=release"></a>
+  <a href="https://github.com/TechnikWeber/MobTag/releases/latest"><img alt="download" src="https://img.shields.io/github/v/release/TechnikWeber/MobTag?include_prereleases&label=download&color=2ea44f"></a>
   <img alt="status" src="https://img.shields.io/badge/status-beta-yellow">
   <a href="https://github.com/TechnikWeber/MobTag/actions/workflows/build.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/TechnikWeber/MobTag/build.yml?branch=main&label=build"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-Paper%20%7C%20Spigot%201.21%2B-blue">
@@ -10,9 +10,11 @@
 </p>
 
 <p>
-  <a href="https://github.com/Abood8001/MobTag"><b>Upstream project</b></a> &nbsp;·&nbsp;
-  <a href="https://github.com/Abood8001/MobTag#readme"><b>Full documentation</b></a> &nbsp;·&nbsp;
-  <a href="src/main/resources/config.yml"><b>Configuration</b></a>
+  <a href="https://github.com/TechnikWeber/MobTag/releases/latest"><b>Download</b></a> &nbsp;·&nbsp;
+  <a href="#install"><b>Install</b></a> &nbsp;·&nbsp;
+  <a href="https://technikweber.github.io/2026/mobtag-lebensanzeige-ueber-mobs/"><b>Blog post (German)</b></a> &nbsp;·&nbsp;
+  <a href="src/main/resources/config.yml"><b>Configuration</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/Abood8001/MobTag"><b>Upstream project</b></a>
 </p>
 
 Health tags above mobs for Paper/Spigot servers, shown to Java players and to Bedrock players
@@ -36,7 +38,8 @@ small Java + Bedrock crossplay server. Goals of the fork:
   Server owners define their own under `styles:` in `config.yml`.
 - **Sizes per player**: small / medium / large (Java only, Bedrock keeps the normal size).
 - **When to show, per player**: always, only the mob you look at, or only mobs you fight.
-- **Duration per player**: in combat mode a tag stays 5, 10, 15 or 30 s after your last hit.
+- **Duration per player**: in combat mode a tag stays 5 s, 10 s, 15 s, 30 s, 10 min or until the mob
+  dies after your last hit.
 - **Target bar**: a boss bar with the mob you look at or fight, identical on Java and Bedrock.
 - Passive mobs (cows, sheep, …) are hidden by default.
 - Same choices as commands: `/mobtag style|size|show|duration <value>`, `/mobtag toggle targetbar`.
