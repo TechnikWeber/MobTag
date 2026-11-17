@@ -78,13 +78,19 @@ public class MobTagManager {
     private void updateTags() {
         long start = System.nanoTime();
         MobTagConfig cfg = plugin.getMobTagConfig();
-        String mode = cfg.getVisibilityMode();
-        boolean lookingMode = "LOOKING_AT".equals(mode);
-        boolean damagerMode = "DAMAGER".equals(mode);
+
+        // "When to show" is a per-player choice in this fork, falling back to visibility-mode.
+        Map<UUID, String> showModes = new HashMap<>();
+        boolean anyLooking = false;
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            String m = plugin.getToggleManager().effectiveShow(p.getUniqueId());
+            showModes.put(p.getUniqueId(), m);
+            if ("LOOKING_AT".equals(m)) anyLooking = true;
+        }
 
         // One ray trace per player per tick, not one per (player, mob) pair - the result is the
         // same whichever mob you were about to test it against.
-        Map<UUID, Entity> lookTargets = lookingMode ? computeLookTargets(cfg) : Map.of();
+        Map<UUID, Entity> lookTargets = anyLooking ? computeLookTargets(cfg) : Map.of();
 
         Map<UUID, List<Player>> wanted = new HashMap<>();
         Map<UUID, LivingEntity> byId = new HashMap<>();
@@ -105,6 +111,9 @@ public class MobTagManager {
             if (cfg.getBlacklistedWorlds().contains(viewer.getWorld().getName())) continue;
 
             Location viewerLoc = viewer.getLocation();
+            String viewerMode = showModes.getOrDefault(viewer.getUniqueId(), "ALL");
+            boolean lookingMode = "LOOKING_AT".equals(viewerMode);
+            boolean damagerMode = "DAMAGER".equals(viewerMode);
             for (Entity entity : viewer.getWorld().getNearbyEntities(viewerLoc, range, range, range,
                     e -> e instanceof LivingEntity)) {
                 scanned++;
@@ -287,12 +296,25 @@ public class MobTagManager {
             tags.put(uid, display);
         }
 
-        // Only rebuild the text per viewer when placeholders can actually differ between them.
-        boolean perViewer = plugin.isPapiEnabled() && formatFor(entity, cfg).indexOf('%') >= 0;
-        String shared = perViewer ? null : buildTagText(entity, null, cfg);
+        // Armor stands carry one shared name, so per-player designs need the packet backend.
+        boolean perPlayerStyle = display instanceof PacketDisplay;
+        MobTagConfig.Style fallback = cfg.getStyles().get(cfg.getDefaultStyle());
 
+        // Text is built once per design in use, and per viewer only when PlaceholderAPI
+        // placeholders can actually differ between them.
+        Map<String, String> byStyle = new HashMap<>(4);
         for (Player viewer : viewers) {
-            display.update(tagLoc, perViewer ? buildTagText(entity, viewer, cfg) : shared, viewer);
+            MobTagConfig.Style style = perPlayerStyle
+                    ? plugin.getToggleManager().effectiveStyle(viewer.getUniqueId())
+                    : fallback;
+            String format = formatFor(entity, cfg, style);
+            String text;
+            if (plugin.isPapiEnabled() && format.indexOf('%') >= 0) {
+                text = buildTagText(entity, viewer, cfg, format);
+            } else {
+                text = byStyle.computeIfAbsent(style.id(), k -> buildTagText(entity, null, cfg, format));
+            }
+            display.update(tagLoc, text, viewer);
         }
     }
 
@@ -305,7 +327,8 @@ public class MobTagManager {
             return new PacketDisplay(loc, mob, (float) heights[0], (float) heights[1],
                     cfg.getTagScale(), plugin);
         }
-        return new ArmorStandDisplay(loc, buildTagText(mob, null, cfg), plugin, mob);
+        MobTagConfig.Style style = cfg.getStyles().get(cfg.getDefaultStyle());
+        return new ArmorStandDisplay(loc, buildTagText(mob, null, cfg, formatFor(mob, cfg, style)), plugin, mob);
     }
 
     private Location getTagLocation(LivingEntity entity, MobTagConfig cfg) {
@@ -313,23 +336,45 @@ public class MobTagManager {
         return entity.getLocation().clone().add(0, entity.getHeight() + offset, 0);
     }
 
-    /** The raw, uninterpolated format string that applies to this entity. */
-    private String formatFor(LivingEntity entity, MobTagConfig cfg) {
+    /**
+     * The raw, uninterpolated format string that applies to this entity for the given design.
+     * A design with an empty format is the original behaviour: tag-format, entity-formats and
+     * MythicMobs formats exactly as configured.
+     */
+    private String formatFor(LivingEntity entity, MobTagConfig cfg, MobTagConfig.Style style) {
         if (entity instanceof Player) return cfg.getPlayerTagFormat();
 
         if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity)) {
             String mythic = cfg.getMythicCustomFormat();
             if (mythic != null && !mythic.isEmpty()) return mythic;
         }
+        if (style != null && style.format() != null && !style.format().isEmpty()) {
+            return style.format();
+        }
         return cfg.getEntityFormats().getOrDefault(entity.getType().name(), cfg.getTagFormat());
     }
 
-    private String buildTagText(LivingEntity entity, Player viewer, MobTagConfig cfg) {
+    /** Applies the shared placeholders. Used by the tags and by the target bar. */
+    public String applyPlaceholders(LivingEntity entity, String format, MobTagConfig cfg) {
         double max = EntityUtil.getMaxHealth(entity);
         double health = entity.getHealth();
         double ratio = max > 0 ? Math.min(1.0, health / max) : 0.0;
+        return format
+                .replace("{name}", getMobName(entity, cfg))
+                .replace("{type}", entity.getType().name())
+                .replace("{current}", trim(health))
+                .replace("{max}", trim(max))
+                .replace("{bar}", cfg.getBar(ratio))
+                .replace("{dot}", cfg.getDot(ratio))
+                .replace("{percent}", String.format(Locale.US, "%.1f", ratio * 100.0));
+    }
 
-        String format = formatFor(entity, cfg);
+    /** Whether this entity qualifies for a tag at all, ignoring range and viewer choices. */
+    public boolean isTaggable(LivingEntity entity) {
+        return shouldTag(entity, plugin.getMobTagConfig(), System.currentTimeMillis());
+    }
+
+    private String buildTagText(LivingEntity entity, Player viewer, MobTagConfig cfg, String format) {
 
         if (plugin.isMythicMobsEnabled() && plugin.getMythicMobsHook().isMythicMob(entity)
                 && format.contains("{mythic_name}")) {
@@ -346,13 +391,7 @@ public class MobTagManager {
             }
         }
 
-        format = format
-                .replace("{name}", getMobName(entity, cfg))
-                .replace("{type}", entity.getType().name())
-                .replace("{current}", trim(health))
-                .replace("{max}", trim(max))
-                .replace("{bar}", cfg.getBar(ratio))
-                .replace("{percent}", String.format(Locale.US, "%.1f", ratio * 100.0));
+        format = applyPlaceholders(entity, format, cfg);
 
         if (plugin.isPapiEnabled()) {
             try {

@@ -1,6 +1,7 @@
 # MobTag (TechnikWeber fork)
 
 <p>
+  <a href="https://github.com/TechnikWeber/MobTag/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/TechnikWeber/MobTag?include_prereleases&label=release"></a>
   <img alt="status" src="https://img.shields.io/badge/status-beta-yellow">
   <a href="https://github.com/TechnikWeber/MobTag/actions/workflows/build.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/TechnikWeber/MobTag/build.yml?branch=main&label=build"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-Paper%20%7C%20Spigot%201.21%2B-blue">
@@ -23,6 +24,19 @@ small Java + Bedrock crossplay server. Goals of the fork:
 - keep it running on current Paper releases (26.x) alongside Geyser, Floodgate and ViaVersion
 - tune how the tags look, on Java and on Bedrock
 - send useful fixes back upstream
+
+## What the fork adds
+
+- **Designs per player** in `/mobtag`: Classic, Bar, Bar + numbers, Dot (one green/yellow/red dot).
+  Server owners define their own under `styles:` in `config.yml`.
+- **Sizes per player**: small / medium / large (Java only, Bedrock keeps the normal size).
+- **When to show, per player**: always, only the mob you look at, or only mobs you fight.
+- **Target bar**: a boss bar with the mob you look at or fight, identical on Java and Bedrock.
+- Passive mobs (cows, sheep, …) are hidden by default.
+- Same choices as commands: `/mobtag style|size|show <value>`, `/mobtag toggle targetbar`.
+
+Per-player designs and sizes need [PacketEvents](https://modrinth.com/plugin/packetevents); without
+it everyone sees `default-style`.
 
 ## Features
 

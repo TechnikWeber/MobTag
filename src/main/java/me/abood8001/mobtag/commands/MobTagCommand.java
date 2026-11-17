@@ -19,7 +19,8 @@ import java.util.UUID;
 
 public class MobTagCommand implements CommandExecutor, TabCompleter {
 
-    private static final List<String> TOGGLE_TARGETS = Arrays.asList("mobs", "players", "damage");
+    private static final List<String> TOGGLE_TARGETS = Arrays.asList("mobs", "players", "damage", "targetbar");
+    private static final List<String> SHOW_ARGS = Arrays.asList("always", "looking", "combat");
     private static final List<String> ADMIN_SUBS = Arrays.asList("reload", "debug");
 
     private final MobTag plugin;
@@ -50,6 +51,10 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
 
         if (sub.equals("toggle")) {
             return handleToggle(sender, args, cfg, prefix);
+        }
+
+        if (sub.equals("style") || sub.equals("size") || sub.equals("show")) {
+            return handleLook(sender, sub, args, cfg, prefix);
         }
 
         if (sub.equals("admin")) {
@@ -106,14 +111,80 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
                 nowHidden = plugin.getToggleManager().toggleDamageIndicator(uid);
                 feature = "Damage indicators";
             }
+            case "targetbar" -> {
+                if (!cfg.isTargetBarEnabled()) {
+                    player.sendMessage(prefix + TextUtil.colorize("&cThe target bar is disabled on this server."));
+                    return true;
+                }
+                boolean on = !plugin.getToggleManager().isTargetBarOn(uid);
+                plugin.getToggleManager().setTargetBar(uid, on);
+                nowHidden = !on;
+                feature = "Target bar";
+            }
             default -> {
-                player.sendMessage(prefix + TextUtil.colorize("&fUsage: &e/mobtag toggle <mobs|players|damage>"));
+                player.sendMessage(prefix + TextUtil.colorize("&fUsage: &e/mobtag toggle <mobs|players|damage|targetbar>"));
                 return true;
             }
         }
 
         String message = nowHidden ? cfg.getMsgToggleOff() : cfg.getMsgToggleOn();
         player.sendMessage(prefix + TextUtil.colorize(message.replace("{feature}", feature)));
+        plugin.refreshViewer(player);
+        return true;
+    }
+
+    /** /mobtag style|size|show [value] - the same choices as the menu, handy on Bedrock. */
+    private boolean handleLook(CommandSender sender, String sub, String[] args, MobTagConfig cfg, String prefix) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(prefix + TextUtil.colorize(cfg.getMsgPlayersOnly()));
+            return true;
+        }
+        if (!player.hasPermission("mobtag.toggle")) {
+            sender.sendMessage(prefix + TextUtil.colorize(cfg.getMsgNoPermission()));
+            return true;
+        }
+        UUID uid = player.getUniqueId();
+        var toggles = plugin.getToggleManager();
+        String value = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : null;
+
+        switch (sub) {
+            case "style" -> {
+                if (value == null || !cfg.getStyles().containsKey(value)) {
+                    player.sendMessage(prefix + TextUtil.colorize("&fDesign: &e" + toggles.effectiveStyle(uid).id()
+                            + " &7| options: &f" + String.join(", ", cfg.getStyles().keySet())));
+                    return true;
+                }
+                toggles.setStyle(uid, value);
+                player.sendMessage(prefix + TextUtil.colorize("&aDesign set to " + cfg.getStyles().get(value).name()));
+            }
+            case "size" -> {
+                if (value == null || !cfg.getSizes().containsKey(value)) {
+                    player.sendMessage(prefix + TextUtil.colorize("&fSize: &e" + toggles.effectiveSize(uid).id()
+                            + " &7| options: &f" + String.join(", ", cfg.getSizes().keySet())));
+                    return true;
+                }
+                toggles.setSize(uid, value);
+                player.sendMessage(prefix + TextUtil.colorize("&aSize set to " + cfg.getSizes().get(value).name()));
+            }
+            default -> {
+                String mode = value == null ? null : switch (value) {
+                    case "always", "all" -> "ALL";
+                    case "looking", "looking_at" -> "LOOKING_AT";
+                    case "combat", "damager" -> "DAMAGER";
+                    default -> null;
+                };
+                if (mode == null) {
+                    player.sendMessage(prefix + TextUtil.colorize("&fWhen: &e"
+                            + me.abood8001.mobtag.gui.MobTagGUI.showName(toggles.effectiveShow(uid))
+                            + " &7| options: &f" + String.join(", ", SHOW_ARGS)));
+                    return true;
+                }
+                toggles.setShow(uid, mode);
+                player.sendMessage(prefix + TextUtil.colorize("&aTags now shown: "
+                        + me.abood8001.mobtag.gui.MobTagGUI.showName(mode)));
+            }
+        }
+        plugin.refreshViewer(player);
         return true;
     }
 
@@ -143,11 +214,22 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
         List<String> options = new ArrayList<>();
 
         if (args.length == 1) {
-            if (sender.hasPermission("mobtag.toggle")) options.add("toggle");
+            if (sender.hasPermission("mobtag.toggle")) {
+                options.add("toggle");
+                options.add("style");
+                options.add("size");
+                options.add("show");
+            }
             if (sender.hasPermission("mobtag.admin")) options.add("admin");
         } else if (args.length == 2) {
             if (args[0].equalsIgnoreCase("toggle") && sender.hasPermission("mobtag.toggle")) {
                 options.addAll(TOGGLE_TARGETS);
+            } else if (args[0].equalsIgnoreCase("style") && sender.hasPermission("mobtag.toggle")) {
+                options.addAll(plugin.getMobTagConfig().getStyles().keySet());
+            } else if (args[0].equalsIgnoreCase("size") && sender.hasPermission("mobtag.toggle")) {
+                options.addAll(plugin.getMobTagConfig().getSizes().keySet());
+            } else if (args[0].equalsIgnoreCase("show") && sender.hasPermission("mobtag.toggle")) {
+                options.addAll(SHOW_ARGS);
             } else if (args[0].equalsIgnoreCase("admin") && sender.hasPermission("mobtag.admin")) {
                 options.addAll(ADMIN_SUBS);
             }

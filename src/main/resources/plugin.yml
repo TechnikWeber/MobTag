@@ -15,7 +15,7 @@ softdepend:
 commands:
   mobtag:
     description: Open the MobTag settings menu
-    usage: /mobtag [toggle <mobs|players|damage> | admin <reload|debug>]
+    usage: /mobtag [toggle <mobs|players|damage|targetbar> | style <id> | size <id> | show <always|looking|combat> | admin <reload|debug>]
     permission: mobtag.use
 
 permissions:

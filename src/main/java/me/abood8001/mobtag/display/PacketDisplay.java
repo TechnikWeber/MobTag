@@ -230,10 +230,11 @@ public class PacketDisplay implements TagDisplay {
     private WrapperPlayServerEntityMetadata buildMetaPacket(Player viewer, String text) {
         Component component = LEGACY.deserialize(text);
         float height = BedrockUtil.isBedrock(plugin, viewer) ? heightOffsetBedrock : heightOffsetJava;
+        float s = viewerScale(viewer);
 
         List<EntityData<?>> data = List.of(
                 new EntityData<>(11, EntityDataTypes.VECTOR3F, new Vector3f(0f, height, 0f)),
-                new EntityData<>(12, EntityDataTypes.VECTOR3F, new Vector3f((float) scale, (float) scale, (float) scale)),
+                new EntityData<>(12, EntityDataTypes.VECTOR3F, new Vector3f(s, s, s)),
                 new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),   // billboard: CENTER
                 new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, component),
                 new EntityData<>(27, EntityDataTypes.BYTE, (byte) 3)    // shadow + see-through
@@ -244,13 +245,13 @@ public class PacketDisplay implements TagDisplay {
     public void playDamageAnimation(boolean flash, boolean scaleBounce, int duration, MobTag plugin) {
         if (dead || viewers.isEmpty()) return;
 
-        float animScale = scaleBounce ? (float) (scale * 1.4) : (float) scale;
-
         for (UUID viewerId : new HashSet<>(viewers)) {
             Player p = Bukkit.getPlayer(viewerId);
             if (p == null || !p.isOnline()) continue;
             User user = user(p);
             if (user == null) continue;
+            float base = viewerScale(p);
+            float animScale = scaleBounce ? base * 1.4f : base;
 
             String viewerText = textByViewer.getOrDefault(viewerId, "");
             String animText = flash
@@ -277,6 +278,19 @@ public class PacketDisplay implements TagDisplay {
                 sendMeta(p, textByViewer.getOrDefault(viewerId, ""));
             }
         }, duration);
+    }
+
+    /** Config tag-scale times the size this viewer picked in the menu (small/medium/large). */
+    private float viewerScale(Player viewer) {
+        double size = 1.0;
+        // Geyser renders these as plain name tags, so Bedrock always keeps the base size.
+        if (BedrockUtil.isBedrock(plugin, viewer)) return (float) scale;
+        try {
+            size = plugin.getToggleManager().effectiveSize(viewer.getUniqueId()).scale();
+        } catch (Exception ignored) {
+            // fall back to the plain config scale
+        }
+        return (float) (scale * size);
     }
 
     private static User user(Player p) {

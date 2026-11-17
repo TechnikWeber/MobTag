@@ -2,6 +2,7 @@ package me.abood8001.mobtag;
 
 import me.abood8001.mobtag.commands.MobTagCommand;
 import me.abood8001.mobtag.display.IndicatorManager;
+import me.abood8001.mobtag.display.TargetBarManager;
 import me.abood8001.mobtag.gui.MobTagGUI;
 import me.abood8001.mobtag.hooks.MythicMobsHook;
 import me.abood8001.mobtag.hooks.PAPIHook;
@@ -28,6 +29,7 @@ public class MobTag extends JavaPlugin {
     private ToggleManager toggleManager;
     private IndicatorManager indicatorManager;
     private MobTagGUI gui;
+    private TargetBarManager targetBarManager;
     private UpdateChecker updateChecker;
 
     private PAPIHook papiHook;
@@ -71,6 +73,9 @@ public class MobTag extends JavaPlugin {
         tagManager.startTask();
         indicatorManager.start();
 
+        this.targetBarManager = new TargetBarManager(this);
+        targetBarManager.start();
+
         Metrics metrics = new Metrics(this, BSTATS_ID);
         metrics.addCustomChart(new SimplePie("display_mode", () -> mobTagConfig.getDisplayMode()));
         metrics.addCustomChart(new SimplePie("visibility_mode", () -> mobTagConfig.getVisibilityMode()));
@@ -88,6 +93,7 @@ public class MobTag extends JavaPlugin {
     @Override
     public void onDisable() {
         if (indicatorManager != null) indicatorManager.stop();
+        if (targetBarManager != null) targetBarManager.stop();
         if (tagManager != null) {
             tagManager.stopTask();
             tagManager.removeAllTags();
@@ -141,6 +147,9 @@ public class MobTag extends JavaPlugin {
         if (indicatorManager != null) {
             indicatorManager.start();
         }
+        if (targetBarManager != null) {
+            targetBarManager.start();
+        }
     }
 
     /** Plugin version without going through the deprecated description accessor on Paper. */
@@ -158,5 +167,14 @@ public class MobTag extends JavaPlugin {
     public boolean isMythicMobsEnabled() { return mythicMobsEnabled && mythicMobsHook != null; }
     public boolean isPacketEventsEnabled() { return packetEventsEnabled; }
     public MobTagGUI getGUI() { return gui; }
+    public TargetBarManager getTargetBarManager() { return targetBarManager; }
+
+    /** Re-renders every tag for this player on the next pass, after they changed their look. */
+    public void refreshViewer(org.bukkit.entity.Player player) {
+        if (tagManager != null) tagManager.removeViewer(player);
+        if (targetBarManager != null && !toggleManager.isTargetBarOn(player.getUniqueId())) {
+            targetBarManager.hide(player);
+        }
+    }
     public UpdateChecker getUpdateChecker() { return updateChecker; }
 }

@@ -5,7 +5,7 @@
 
 # Internal. Do not edit — MobTag uses this to merge in new options on update
 # without touching the settings you already changed.
-config-version: 2
+config-version: 3
 
 # -----------------------------------------------
 # GENERAL SETTINGS
@@ -160,6 +160,7 @@ player-tags:
 #   {max}        - Max health
 #   {bar}        - Health bar (see health-bar section below)
 #   {percent}    - Health percentage (e.g. 75.0)
+#   {dot}        - One coloured dot: green / yellow / red by health (see health-dot)
 #
 # Color codes: Use & followed by a color code (e.g. &c = red, &a = green)
 # Hex colors:  Use &#RRGGBB format (e.g. &#ff0000 = red)
@@ -198,6 +199,69 @@ health-bar:
 
   # Color of the empty portion
   empty-color: "&8"
+
+# Single coloured dot for {dot}. Uses the gradient colours of the health bar above.
+health-dot:
+  char: "●"
+
+# -----------------------------------------------
+# PLAYER CHOICES (/mobtag menu)
+# -----------------------------------------------
+# Players pick a design, a size and when tags are shown in /mobtag (or with
+# /mobtag style|size|show). The values below are the defaults for everyone who
+# has not picked anything. Per-player designs and sizes need PACKET mode
+# (PacketEvents); in ARMORSTAND mode everyone sees default-style.
+
+# Designs. "format" uses the same placeholders as tag-format.
+# An empty format means: use tag-format / entity-formats exactly as configured.
+styles:
+  classic:
+    name: "&fClassic"
+    format: ""
+  bar:
+    name: "&fBar"
+    format: "{bar}"
+  bar-numbers:
+    name: "&fBar + numbers"
+    format: "{bar} &f{current}&7/&f{max}"
+  dot:
+    name: "&fDot"
+    format: "{dot}"
+default-style: classic
+
+# Sizes, as a multiplier on tag-scale. Java only: Bedrock players (Geyser)
+# always see the normal size.
+sizes:
+  small:
+    name: "&fSmall"
+    scale: 0.7
+  medium:
+    name: "&fMedium"
+    scale: 1.0
+  large:
+    name: "&fLarge"
+    scale: 1.4
+default-size: medium
+
+# The default for "when to show" is visibility-mode above (ALL, LOOKING_AT, DAMAGER).
+
+# -----------------------------------------------
+# TARGET BAR
+# -----------------------------------------------
+# A boss bar at the top of the screen with the mob you look at, or the one you
+# are fighting. Works the same on Java and Bedrock (Geyser translates boss bars).
+target-bar:
+  enabled: true
+  # On for players who have not switched it off themselves?
+  default-on: true
+  # How far you can look at a mob to get its bar (blocks).
+  range: 24.0
+  # Keep showing the mob you hit for this many seconds after you look away.
+  combat-seconds: 5
+  # Title of the bar. Same placeholders as tag-format.
+  format: "&f{name} &c❤ &f{current}&7/&f{max}"
+  # SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12 or SEGMENTED_20
+  style: SEGMENTED_10
 
 # -----------------------------------------------
 # MYTHICMOBS INTEGRATION

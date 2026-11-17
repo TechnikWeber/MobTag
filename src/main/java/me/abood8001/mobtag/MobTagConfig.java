@@ -9,6 +9,7 @@ import org.bukkit.entity.Player;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,7 +18,7 @@ import java.util.Set;
 public class MobTagConfig {
 
     /** Bumped whenever new keys are added, so existing configs get merged rather than reset. */
-    public static final int CONFIG_VERSION = 2;
+    public static final int CONFIG_VERSION = 3;
 
     private final MobTag plugin;
 
@@ -114,6 +115,26 @@ public class MobTagConfig {
 
     // Misc
     private boolean updateChecker;
+
+    // Player-selectable look (fork additions)
+    /** A tag design players can pick in the menu. An empty format means "tag-format as before". */
+    public record Style(String id, String name, String format) {}
+    /** A tag size players can pick in the menu. */
+    public record Size(String id, String name, double scale) {}
+
+    private Map<String, Style> styles;
+    private String defaultStyle;
+    private Map<String, Size> sizes;
+    private String defaultSize;
+    private String dotChar;
+    private String[] dotCache;
+
+    private boolean targetBarEnabled;
+    private boolean targetBarDefaultOn;
+    private double targetBarRange;
+    private int targetBarCombatSeconds;
+    private String targetBarFormat;
+    private String targetBarStyle;
 
     public MobTagConfig(MobTag plugin) {
         this.plugin = plugin;
@@ -246,6 +267,55 @@ public class MobTagConfig {
         bedrockPrefix = cfg.getString("bedrock.prefix", ".");
 
         updateChecker = cfg.getBoolean("update-checker", true);
+
+        loadLookOptions(cfg);
+    }
+
+    private void loadLookOptions(FileConfiguration cfg) {
+        styles = new LinkedHashMap<>();
+        ConfigurationSection styleSection = cfg.getConfigurationSection("styles");
+        if (styleSection != null) {
+            for (String id : styleSection.getKeys(false)) {
+                ConfigurationSection st = styleSection.getConfigurationSection(id);
+                if (st == null) continue;
+                String key = id.toLowerCase(Locale.ROOT);
+                styles.put(key, new Style(key, st.getString("name", id), st.getString("format", "")));
+            }
+        }
+        if (styles.isEmpty()) {
+            styles.put("classic", new Style("classic", "&fClassic", ""));
+        }
+        defaultStyle = cfg.getString("default-style", "classic").toLowerCase(Locale.ROOT);
+        if (!styles.containsKey(defaultStyle)) defaultStyle = styles.keySet().iterator().next();
+
+        sizes = new LinkedHashMap<>();
+        ConfigurationSection sizeSection = cfg.getConfigurationSection("sizes");
+        if (sizeSection != null) {
+            for (String id : sizeSection.getKeys(false)) {
+                ConfigurationSection sz = sizeSection.getConfigurationSection(id);
+                if (sz == null) continue;
+                String key = id.toLowerCase(Locale.ROOT);
+                double scale = Math.max(0.1, Math.min(5.0, sz.getDouble("scale", 1.0)));
+                sizes.put(key, new Size(key, sz.getString("name", id), scale));
+            }
+        }
+        if (sizes.isEmpty()) {
+            sizes.put("medium", new Size("medium", "&fMedium", 1.0));
+        }
+        defaultSize = cfg.getString("default-size", "medium").toLowerCase(Locale.ROOT);
+        if (!sizes.containsKey(defaultSize)) defaultSize = sizes.keySet().iterator().next();
+
+        dotChar = cfg.getString("health-dot.char", "●");
+        String[] tiers = {gradientHigh, gradientMedium, gradientLow};
+        dotCache = new String[tiers.length];
+        for (int i = 0; i < tiers.length; i++) dotCache[i] = TextUtil.colorize(tiers[i]) + dotChar;
+
+        targetBarEnabled = cfg.getBoolean("target-bar.enabled", true);
+        targetBarDefaultOn = cfg.getBoolean("target-bar.default-on", true);
+        targetBarRange = Math.max(1.0, cfg.getDouble("target-bar.range", 24.0));
+        targetBarCombatSeconds = Math.max(0, cfg.getInt("target-bar.combat-seconds", 5));
+        targetBarFormat = cfg.getString("target-bar.format", "&f{name} &c❤ &f{current}&7/&f{max}");
+        targetBarStyle = cfg.getString("target-bar.style", "SEGMENTED_10").toUpperCase(Locale.ROOT);
     }
 
     /**
@@ -279,6 +349,29 @@ public class MobTagConfig {
         int tier = pct > 60 ? 0 : (pct > 30 ? 1 : 2);
         return barCache[tier][Math.max(0, Math.min(barLength, filled))];
     }
+
+    /** 0 = high, 1 = medium, 2 = low health - the same thresholds the bar gradient uses. */
+    public static int tier(double ratio) {
+        double pct = ratio * 100;
+        return pct > 60 ? 0 : (pct > 30 ? 1 : 2);
+    }
+
+    /** A single coloured dot: green, yellow or red depending on health. */
+    public String getDot(double ratio) {
+        if (Double.isNaN(ratio) || ratio < 0) ratio = 0;
+        return dotCache[tier(Math.min(1.0, ratio))];
+    }
+
+    public Map<String, Style> getStyles() { return styles; }
+    public String getDefaultStyle() { return defaultStyle; }
+    public Map<String, Size> getSizes() { return sizes; }
+    public String getDefaultSize() { return defaultSize; }
+    public boolean isTargetBarEnabled() { return targetBarEnabled; }
+    public boolean isTargetBarDefaultOn() { return targetBarDefaultOn; }
+    public double getTargetBarRange() { return targetBarRange; }
+    public int getTargetBarCombatSeconds() { return targetBarCombatSeconds; }
+    public String getTargetBarFormat() { return targetBarFormat; }
+    public String getTargetBarStyle() { return targetBarStyle; }
 
     // Getters
 

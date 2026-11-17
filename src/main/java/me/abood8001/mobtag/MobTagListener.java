@@ -43,6 +43,9 @@ public class MobTagListener implements Listener {
         if (player == null) return;
 
         plugin.getTagManager().setLastDamager(entity.getUniqueId(), player.getUniqueId());
+        if (plugin.getTargetBarManager() != null) {
+            plugin.getTargetBarManager().recordHit(player, entity);
+        }
 
         MobTagConfig cfg = plugin.getMobTagConfig();
         boolean packetMode = plugin.isPacketEventsEnabled() && !"ARMORSTAND".equals(cfg.getDisplayMode());
@@ -91,6 +94,9 @@ public class MobTagListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         plugin.getTagManager().removeViewer(player);
+        if (plugin.getTargetBarManager() != null) {
+            plugin.getTargetBarManager().removePlayer(player);
+        }
         if (plugin.getIndicatorManager() != null) {
             plugin.getIndicatorManager().removeFor(player.getUniqueId());
         }
