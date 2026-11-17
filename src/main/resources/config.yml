@@ -83,7 +83,7 @@ damager-timeout-seconds: 30
 
 # Ignore peaceful mobs (cows, pigs, sheep, etc)?
 # Detected by mob behaviour, so modded and newly added animals are covered automatically.
-ignore-passive: false
+ignore-passive: true
 
 # Ignore player entities? Must be false for player-tags below to do anything.
 ignore-players: true

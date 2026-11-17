@@ -170,7 +170,7 @@ public class MobTagConfig {
         lookingRequiresLineOfSight = cfg.getBoolean("looking-at-requires-line-of-sight", true);
         visibilityMode = cfg.getString("visibility-mode", "ALL").toUpperCase(Locale.ROOT);
         damagerTimeoutSeconds = cfg.getInt("damager-timeout-seconds", 30);
-        ignorePassive = cfg.getBoolean("ignore-passive", false);
+        ignorePassive = cfg.getBoolean("ignore-passive", true);
         ignorePlayers = cfg.getBoolean("ignore-players", true);
         showOnBosses = cfg.getBoolean("show-on-bosses", true);
         hideAtFullHealth = cfg.getBoolean("hide-at-full-health", false);
