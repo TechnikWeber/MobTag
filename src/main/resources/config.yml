@@ -5,7 +5,7 @@
 
 # Internal. Do not edit — MobTag uses this to merge in new options on update
 # without touching the settings you already changed.
-config-version: 6
+config-version: 7
 
 # -----------------------------------------------
 # GENERAL SETTINGS
@@ -78,8 +78,12 @@ looking-at-range: 5.0
 looking-at-requires-line-of-sight: true
 
 # DAMAGER mode: stop showing the tag this many seconds after the last hit.
-# Set to 0 to remember the damager forever.
+# Set to 0 to remember the damager forever. This is the default; players can
+# pick one of the "durations" below in /mobtag.
 damager-timeout-seconds: 30
+
+# Choices for "Duration" in /mobtag (seconds, 0 = until the mob dies).
+durations: [5, 10, 15, 30]
 
 # Ignore peaceful mobs (cows, pigs, sheep, etc)?
 # Detected by mob behaviour, so modded and newly added animals are covered automatically.

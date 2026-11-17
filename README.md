@@ -36,9 +36,10 @@ small Java + Bedrock crossplay server. Goals of the fork:
   Server owners define their own under `styles:` in `config.yml`.
 - **Sizes per player**: small / medium / large (Java only, Bedrock keeps the normal size).
 - **When to show, per player**: always, only the mob you look at, or only mobs you fight.
+- **Duration per player**: in combat mode a tag stays 5, 10, 15 or 30 s after your last hit.
 - **Target bar**: a boss bar with the mob you look at or fight, identical on Java and Bedrock.
 - Passive mobs (cows, sheep, …) are hidden by default.
-- Same choices as commands: `/mobtag style|size|show <value>`, `/mobtag toggle targetbar`.
+- Same choices as commands: `/mobtag style|size|show|duration <value>`, `/mobtag toggle targetbar`.
 - Config updates keep every comment: new options land in their documented place, the old
   file is kept as `config.yml.v<N>.bak`.
 

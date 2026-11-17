@@ -233,7 +233,7 @@ public class MobTagManager {
     private boolean isCurrentDamager(LivingEntity target, Player viewer, MobTagConfig cfg, long now) {
         UUID damager = lastDamager.get(target.getUniqueId());
         if (damager == null || !damager.equals(viewer.getUniqueId())) return false;
-        int timeout = cfg.getDamagerTimeoutSeconds();
+        int timeout = plugin.getToggleManager().effectiveDuration(viewer.getUniqueId());
         if (timeout <= 0) return true;
         Long when = lastDamageTime.get(target.getUniqueId());
         return when != null && now - when <= timeout * 1000L;

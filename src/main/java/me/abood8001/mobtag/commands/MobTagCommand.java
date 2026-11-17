@@ -53,6 +53,10 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
             return handleToggle(sender, args, cfg, prefix);
         }
 
+        if (sub.equals("duration")) {
+            return handleDuration(sender, args, cfg, prefix);
+        }
+
         if (sub.equals("style") || sub.equals("size") || sub.equals("show")) {
             return handleLook(sender, sub, args, cfg, prefix);
         }
@@ -129,6 +133,40 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
 
         String message = nowHidden ? cfg.getMsgToggleOff() : cfg.getMsgToggleOn();
         player.sendMessage(prefix + TextUtil.colorize(message.replace("{feature}", feature)));
+        plugin.refreshViewer(player);
+        return true;
+    }
+
+    /** /mobtag duration [seconds] - how long a tag stays after your last hit. */
+    private boolean handleDuration(CommandSender sender, String[] args, MobTagConfig cfg, String prefix) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(prefix + TextUtil.colorize(cfg.getMsgPlayersOnly()));
+            return true;
+        }
+        if (!player.hasPermission("mobtag.toggle")) {
+            sender.sendMessage(prefix + TextUtil.colorize(cfg.getMsgNoPermission()));
+            return true;
+        }
+        Integer value = null;
+        if (args.length >= 2) {
+            try {
+                value = Integer.parseInt(args[1].replace("s", ""));
+            } catch (NumberFormatException ignored) {
+                value = null;
+            }
+        }
+        List<String> options = new ArrayList<>();
+        for (int d : cfg.getDurations()) options.add(String.valueOf(d));
+        if (value == null || !cfg.getDurations().contains(value)) {
+            player.sendMessage(prefix + TextUtil.colorize("&fDuration: &e"
+                    + me.abood8001.mobtag.gui.MobTagGUI.durationName(
+                            plugin.getToggleManager().effectiveDuration(player.getUniqueId()))
+                    + " &7| options: &f" + String.join(", ", options)));
+            return true;
+        }
+        plugin.getToggleManager().setDuration(player.getUniqueId(), value);
+        player.sendMessage(prefix + TextUtil.colorize("&aTags now stay "
+                + me.abood8001.mobtag.gui.MobTagGUI.durationName(value) + " after your last hit."));
         plugin.refreshViewer(player);
         return true;
     }
@@ -219,6 +257,7 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
                 options.add("style");
                 options.add("size");
                 options.add("show");
+                options.add("duration");
             }
             if (sender.hasPermission("mobtag.admin")) options.add("admin");
         } else if (args.length == 2) {
@@ -228,6 +267,8 @@ public class MobTagCommand implements CommandExecutor, TabCompleter {
                 options.addAll(plugin.getMobTagConfig().getStyles().keySet());
             } else if (args[0].equalsIgnoreCase("size") && sender.hasPermission("mobtag.toggle")) {
                 options.addAll(plugin.getMobTagConfig().getSizes().keySet());
+            } else if (args[0].equalsIgnoreCase("duration") && sender.hasPermission("mobtag.toggle")) {
+                for (int d : plugin.getMobTagConfig().getDurations()) options.add(String.valueOf(d));
             } else if (args[0].equalsIgnoreCase("show") && sender.hasPermission("mobtag.toggle")) {
                 options.addAll(SHOW_ARGS);
             } else if (args[0].equalsIgnoreCase("admin") && sender.hasPermission("mobtag.admin")) {

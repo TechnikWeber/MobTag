@@ -27,7 +27,7 @@ import java.util.logging.Level;
 public class MobTagConfig {
 
     /** Bumped whenever new keys are added, so existing configs get merged rather than reset. */
-    public static final int CONFIG_VERSION = 6;
+    public static final int CONFIG_VERSION = 7;
 
     private final MobTag plugin;
 
@@ -136,6 +136,7 @@ public class MobTagConfig {
     private Map<String, Size> sizes;
     private String defaultSize;
     private String dotChar;
+    private List<Integer> durations;
     private int textOpacity;
     private int backgroundOpacity;
     private String[] dotCache;
@@ -346,6 +347,11 @@ public class MobTagConfig {
         if (!sizes.containsKey(defaultSize)) defaultSize = sizes.keySet().iterator().next();
 
         dotChar = cfg.getString("health-dot.char", "●");
+        durations = new java.util.ArrayList<>();
+        for (Integer d : cfg.getIntegerList("durations")) {
+            if (d != null && d >= 0 && !durations.contains(d)) durations.add(d);
+        }
+        if (durations.isEmpty()) durations.addAll(List.of(5, 10, 15, 30));
         textOpacity = Math.max(10, Math.min(100, cfg.getInt("text-opacity", 80)));
         backgroundOpacity = Math.max(0, Math.min(100, cfg.getInt("background-opacity", 15)));
         String[] tiers = {gradientHigh, gradientMedium, gradientLow};
@@ -405,6 +411,7 @@ public class MobTagConfig {
     }
 
     public Map<String, Style> getStyles() { return styles; }
+    public List<Integer> getDurations() { return durations; }
 
     /** Text opacity as the signed byte a text display expects (255 = solid). */
     public byte getTextOpacityByte() { return (byte) Math.round(textOpacity * 255 / 100.0); }

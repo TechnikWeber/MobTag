@@ -36,8 +36,10 @@ public class MobTagGUI implements Listener {
     private static final int SLOT_STYLE = 28;
     private static final int SLOT_SIZE = 30;
     private static final int SLOT_SHOW = 32;
-    private static final int SLOT_RESET = 34;
-    private static final int SLOT_CLOSE = 40;
+    private static final int SLOT_DURATION = 34;
+    // Row 5
+    private static final int SLOT_RESET = 39;
+    private static final int SLOT_CLOSE = 41;
 
     private final MobTag plugin;
 
@@ -99,8 +101,9 @@ public class MobTagGUI implements Listener {
         inv.setItem(SLOT_STYLE, styleItem(uid, cfg, packets));
         inv.setItem(SLOT_SIZE, sizeItem(uid, cfg, packets, bedrock));
         inv.setItem(SLOT_SHOW, showItem(uid));
+        inv.setItem(SLOT_DURATION, durationItem(uid, cfg));
         inv.setItem(SLOT_RESET, infoItem(Material.WATER_BUCKET, "&fReset Look",
-                "&7Design, size, when to show and", "&7target bar back to server defaults.", "",
+                "&7Design, size, when, duration and", "&7target bar back to server defaults.", "",
                 "&eClick to reset"));
         inv.setItem(SLOT_CLOSE, infoItem(Material.BARRIER, "&cClose", "&7Click to close this menu."));
 
@@ -160,6 +163,29 @@ public class MobTagGUI implements Listener {
         lore.add("");
         lore.add("&eClick: next  &7|  &eRight-click: previous");
         return infoItem(Material.ENDER_EYE, "&6When: &f" + showName(current), lore.toArray(new String[0]));
+    }
+
+    private ItemStack durationItem(UUID uid, MobTagConfig cfg) {
+        int current = plugin.getToggleManager().effectiveDuration(uid);
+        List<String> lore = new ArrayList<>();
+        lore.add("&7How long a tag stays after your");
+        lore.add("&7last hit (mode \"In combat\").");
+        lore.add("");
+        List<Integer> options = new ArrayList<>(cfg.getDurations());
+        if (!options.contains(current)) options.add(current);
+        for (int d : options) {
+            lore.add((d == current ? "&a▶ " : "&8  ") + "&f" + durationName(d));
+        }
+        lore.add("");
+        if (!"DAMAGER".equals(plugin.getToggleManager().effectiveShow(uid))) {
+            lore.add("&cOnly used with When: In combat.");
+        }
+        lore.add("&eClick: next  &7|  &eRight-click: previous");
+        return infoItem(Material.CLOCK, "&aDuration: &f" + durationName(current), lore.toArray(new String[0]));
+    }
+
+    public static String durationName(int seconds) {
+        return seconds <= 0 ? "until it dies" : seconds + "s";
     }
 
     public static String showName(String mode) {
@@ -261,6 +287,12 @@ public class MobTagGUI implements Listener {
                         cycle(new ArrayList<>(cfg.getSizes().keySet()), toggles.effectiveSize(uid).id(), step));
             }
             case SLOT_SHOW -> toggles.setShow(uid, cycle(ToggleManager.SHOW_MODES, toggles.effectiveShow(uid), step));
+            case SLOT_DURATION -> {
+                List<Integer> options = cfg.getDurations();
+                int index = options.indexOf(toggles.effectiveDuration(uid));
+                int next = index < 0 ? 0 : Math.floorMod(index + step, options.size());
+                toggles.setDuration(uid, options.get(next));
+            }
             case SLOT_RESET -> toggles.resetLook(uid);
             case SLOT_CLOSE -> {
                 player.closeInventory();

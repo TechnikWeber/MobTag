@@ -48,9 +48,10 @@ public class ToggleManager {
         public String size;
         public String show;
         public Boolean targetBar;
+        public Integer duration;
 
         boolean isEmpty() {
-            return style == null && size == null && show == null && targetBar == null;
+            return style == null && size == null && show == null && targetBar == null && duration == null;
         }
 
         Prefs copy() {
@@ -59,6 +60,7 @@ public class ToggleManager {
             p.size = size;
             p.show = show;
             p.targetBar = targetBar;
+            p.duration = duration;
             return p;
         }
     }
@@ -96,6 +98,7 @@ public class ToggleManager {
                 p.size = entry.getString("size");
                 p.show = entry.getString("show");
                 p.targetBar = entry.contains("target-bar") ? entry.getBoolean("target-bar") : null;
+                p.duration = entry.contains("duration") ? entry.getInt("duration") : null;
                 if (!p.isEmpty()) prefs.put(uuid, p);
             }
         }
@@ -152,6 +155,7 @@ public class ToggleManager {
             if (p.size != null) data.set(base + "size", p.size);
             if (p.show != null) data.set(base + "show", p.show);
             if (p.targetBar != null) data.set(base + "target-bar", p.targetBar);
+            if (p.duration != null) data.set(base + "duration", p.duration);
         }
         try {
             File parent = file.getParentFile();
@@ -193,6 +197,14 @@ public class ToggleManager {
     public void setSize(UUID uuid, String value) { edit(uuid).size = value; tidy(uuid); }
     public void setShow(UUID uuid, String value) { edit(uuid).show = value; tidy(uuid); }
     public void setTargetBar(UUID uuid, Boolean value) { edit(uuid).targetBar = value; tidy(uuid); }
+    public void setDuration(UUID uuid, Integer value) { edit(uuid).duration = value; tidy(uuid); }
+
+    /** Seconds a tag stays after your last hit ("In combat" mode). 0 = until the mob dies. */
+    public int effectiveDuration(UUID uuid) {
+        Prefs p = prefs.get(uuid);
+        if (p != null && p.duration != null && p.duration >= 0) return p.duration;
+        return plugin.getMobTagConfig().getDamagerTimeoutSeconds();
+    }
 
     // Effective values: the player's choice if it still exists in the config, else the default.
 
