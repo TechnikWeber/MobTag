@@ -5,7 +5,7 @@
 
 # Internal. Do not edit — MobTag uses this to merge in new options on update
 # without touching the settings you already changed.
-config-version: 3
+config-version: 4
 
 # -----------------------------------------------
 # GENERAL SETTINGS
@@ -234,14 +234,20 @@ default-style: bar
 sizes:
   small:
     name: "&fSmall"
-    scale: 0.7
+    scale: 0.45
   medium:
     name: "&fMedium"
-    scale: 1.0
+    scale: 0.7
   large:
     name: "&fLarge"
-    scale: 1.4
+    scale: 1.0
 default-size: medium
+
+# Transparency of packet tags in percent (Java only). 100 = solid.
+# text-opacity below 10 is clamped, because the client treats very low values as solid.
+text-opacity: 80
+# Dark box behind the text. Vanilla uses about 25.
+background-opacity: 15
 
 # The default for "when to show" is visibility-mode above (ALL, LOOKING_AT, DAMAGER).
 

@@ -18,7 +18,7 @@ import java.util.Set;
 public class MobTagConfig {
 
     /** Bumped whenever new keys are added, so existing configs get merged rather than reset. */
-    public static final int CONFIG_VERSION = 3;
+    public static final int CONFIG_VERSION = 4;
 
     private final MobTag plugin;
 
@@ -127,6 +127,8 @@ public class MobTagConfig {
     private Map<String, Size> sizes;
     private String defaultSize;
     private String dotChar;
+    private int textOpacity;
+    private int backgroundOpacity;
     private String[] dotCache;
 
     private boolean targetBarEnabled;
@@ -300,12 +302,14 @@ public class MobTagConfig {
             }
         }
         if (sizes.isEmpty()) {
-            sizes.put("medium", new Size("medium", "&fMedium", 1.0));
+            sizes.put("medium", new Size("medium", "&fMedium", 0.7));
         }
         defaultSize = cfg.getString("default-size", "medium").toLowerCase(Locale.ROOT);
         if (!sizes.containsKey(defaultSize)) defaultSize = sizes.keySet().iterator().next();
 
         dotChar = cfg.getString("health-dot.char", "●");
+        textOpacity = Math.max(10, Math.min(100, cfg.getInt("text-opacity", 80)));
+        backgroundOpacity = Math.max(0, Math.min(100, cfg.getInt("background-opacity", 15)));
         String[] tiers = {gradientHigh, gradientMedium, gradientLow};
         dotCache = new String[tiers.length];
         for (int i = 0; i < tiers.length; i++) dotCache[i] = TextUtil.colorize(tiers[i]) + dotChar;
@@ -363,6 +367,12 @@ public class MobTagConfig {
     }
 
     public Map<String, Style> getStyles() { return styles; }
+
+    /** Text opacity as the signed byte a text display expects (255 = solid). */
+    public byte getTextOpacityByte() { return (byte) Math.round(textOpacity * 255 / 100.0); }
+
+    /** ARGB background colour: black with the configured alpha. */
+    public int getBackgroundArgb() { return Math.round(backgroundOpacity * 255 / 100.0f) << 24; }
     public String getDefaultStyle() { return defaultStyle; }
     public Map<String, Size> getSizes() { return sizes; }
     public String getDefaultSize() { return defaultSize; }

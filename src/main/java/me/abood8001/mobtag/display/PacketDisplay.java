@@ -237,6 +237,8 @@ public class PacketDisplay implements TagDisplay {
                 new EntityData<>(12, EntityDataTypes.VECTOR3F, new Vector3f(s, s, s)),
                 new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),   // billboard: CENTER
                 new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, component),
+                new EntityData<>(25, EntityDataTypes.INT, plugin.getMobTagConfig().getBackgroundArgb()),
+                new EntityData<>(26, EntityDataTypes.BYTE, plugin.getMobTagConfig().getTextOpacityByte()),
                 new EntityData<>(27, EntityDataTypes.BYTE, (byte) 3)    // shadow + see-through
         );
         return new WrapperPlayServerEntityMetadata(entityId, data);
@@ -264,6 +266,8 @@ public class PacketDisplay implements TagDisplay {
                     new EntityData<>(12, EntityDataTypes.VECTOR3F, new Vector3f(animScale, animScale, animScale)),
                     new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),
                     new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, LEGACY.deserialize(animText)),
+                    new EntityData<>(25, EntityDataTypes.INT, plugin.getMobTagConfig().getBackgroundArgb()),
+                    new EntityData<>(26, EntityDataTypes.BYTE, plugin.getMobTagConfig().getTextOpacityByte()),
                     new EntityData<>(27, EntityDataTypes.BYTE, (byte) 3)
             );
             user.sendPacket(new WrapperPlayServerEntityMetadata(entityId, animData));
