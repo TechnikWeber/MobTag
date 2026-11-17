@@ -238,7 +238,7 @@ public class PacketDisplay implements TagDisplay {
                 new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),   // billboard: CENTER
                 new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, component),
                 new EntityData<>(25, EntityDataTypes.INT, plugin.getMobTagConfig().getBackgroundArgb()),
-                new EntityData<>(26, EntityDataTypes.BYTE, plugin.getMobTagConfig().getTextOpacityByte()),
+                new EntityData<>(26, EntityDataTypes.BYTE, viewerOpacity(viewer)),
                 new EntityData<>(27, EntityDataTypes.BYTE, (byte) 3)    // shadow + see-through
         );
         return new WrapperPlayServerEntityMetadata(entityId, data);
@@ -267,7 +267,7 @@ public class PacketDisplay implements TagDisplay {
                     new EntityData<>(15, EntityDataTypes.BYTE, (byte) 3),
                     new EntityData<>(23, EntityDataTypes.ADV_COMPONENT, LEGACY.deserialize(animText)),
                     new EntityData<>(25, EntityDataTypes.INT, plugin.getMobTagConfig().getBackgroundArgb()),
-                    new EntityData<>(26, EntityDataTypes.BYTE, plugin.getMobTagConfig().getTextOpacityByte()),
+                    new EntityData<>(26, EntityDataTypes.BYTE, viewerOpacity(p)),
                     new EntityData<>(27, EntityDataTypes.BYTE, (byte) 3)
             );
             user.sendPacket(new WrapperPlayServerEntityMetadata(entityId, animData));
@@ -290,11 +290,22 @@ public class PacketDisplay implements TagDisplay {
         // Geyser renders these as plain name tags, so Bedrock always keeps the base size.
         if (BedrockUtil.isBedrock(plugin, viewer)) return (float) scale;
         try {
-            size = plugin.getToggleManager().effectiveSize(viewer.getUniqueId()).scale();
+            size = plugin.getToggleManager().effectiveSize(viewer.getUniqueId()).scale()
+                    * plugin.getToggleManager().effectiveStyle(viewer.getUniqueId()).scale();
         } catch (Exception ignored) {
             // fall back to the plain config scale
         }
         return (float) (scale * size);
+    }
+
+    /** Text opacity of the design this viewer picked. */
+    private byte viewerOpacity(Player viewer) {
+        try {
+            return plugin.getMobTagConfig().getTextOpacityByte(
+                    plugin.getToggleManager().effectiveStyle(viewer.getUniqueId()));
+        } catch (Exception ignored) {
+            return plugin.getMobTagConfig().getTextOpacityByte();
+        }
     }
 
     private static User user(Player p) {

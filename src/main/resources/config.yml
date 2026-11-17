@@ -5,7 +5,7 @@
 
 # Internal. Do not edit — MobTag uses this to merge in new options on update
 # without touching the settings you already changed.
-config-version: 4
+config-version: 5
 
 # -----------------------------------------------
 # GENERAL SETTINGS
@@ -214,6 +214,8 @@ health-dot:
 
 # Designs. "format" uses the same placeholders as tag-format.
 # An empty format means: use tag-format / entity-formats exactly as configured.
+# Optional per design (Java only): "scale" multiplies the chosen size,
+# "text-opacity" (percent) overrides the global text-opacity below.
 styles:
   classic:
     name: "&fClassic"
@@ -221,9 +223,13 @@ styles:
   bar:
     name: "&fBar"
     format: "{bar}"
+    scale: 0.7
+    text-opacity: 60
   bar-numbers:
     name: "&fBar + numbers"
     format: "{bar} &f{current}&7/&f{max}"
+    scale: 0.7
+    text-opacity: 60
   dot:
     name: "&fDot"
     format: "{dot}"

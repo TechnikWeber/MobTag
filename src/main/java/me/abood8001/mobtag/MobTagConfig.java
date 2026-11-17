@@ -18,7 +18,7 @@ import java.util.Set;
 public class MobTagConfig {
 
     /** Bumped whenever new keys are added, so existing configs get merged rather than reset. */
-    public static final int CONFIG_VERSION = 4;
+    public static final int CONFIG_VERSION = 5;
 
     private final MobTag plugin;
 
@@ -118,7 +118,7 @@ public class MobTagConfig {
 
     // Player-selectable look (fork additions)
     /** A tag design players can pick in the menu. An empty format means "tag-format as before". */
-    public record Style(String id, String name, String format) {}
+    public record Style(String id, String name, String format, double scale, int textOpacity) {}
     /** A tag size players can pick in the menu. */
     public record Size(String id, String name, double scale) {}
 
@@ -281,11 +281,16 @@ public class MobTagConfig {
                 ConfigurationSection st = styleSection.getConfigurationSection(id);
                 if (st == null) continue;
                 String key = id.toLowerCase(Locale.ROOT);
-                styles.put(key, new Style(key, st.getString("name", id), st.getString("format", "")));
+                double styleScale = Math.max(0.1, Math.min(5.0, st.getDouble("scale", 1.0)));
+                // -1 = use the global text-opacity
+                int styleOpacity = st.contains("text-opacity")
+                        ? Math.max(10, Math.min(100, st.getInt("text-opacity"))) : -1;
+                styles.put(key, new Style(key, st.getString("name", id), st.getString("format", ""),
+                        styleScale, styleOpacity));
             }
         }
         if (styles.isEmpty()) {
-            styles.put("classic", new Style("classic", "&fClassic", ""));
+            styles.put("classic", new Style("classic", "&fClassic", "", 1.0, -1));
         }
         defaultStyle = cfg.getString("default-style", "classic").toLowerCase(Locale.ROOT);
         if (!styles.containsKey(defaultStyle)) defaultStyle = styles.keySet().iterator().next();
@@ -370,6 +375,12 @@ public class MobTagConfig {
 
     /** Text opacity as the signed byte a text display expects (255 = solid). */
     public byte getTextOpacityByte() { return (byte) Math.round(textOpacity * 255 / 100.0); }
+
+    /** Text opacity for one design: its own text-opacity if set, otherwise the global one. */
+    public byte getTextOpacityByte(Style style) {
+        int pct = style != null && style.textOpacity() >= 0 ? style.textOpacity() : textOpacity;
+        return (byte) Math.round(pct * 255 / 100.0);
+    }
 
     /** ARGB background colour: black with the configured alpha. */
     public int getBackgroundArgb() { return Math.round(backgroundOpacity * 255 / 100.0f) << 24; }
